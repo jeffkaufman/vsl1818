@@ -6,10 +6,6 @@ import struct
 def pp(rb):
     return " ".join(b.encode("hex") for b in rb)
 
-def process_bytes(bs):
-    for r in Record.readall(bs):
-        print str(r)
-
 def parsestr(s, n=None):
     assert '\x00' in s
     if n is not None:
@@ -99,33 +95,21 @@ def connect_tcp(host, port):
 def should_connect(data):
     (r, ) = list(Record.readall(data))
 
-def scan_udp(port):
-    s = socket(AF_INET, SOCK_DGRAM)
-    s.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
-    s.bind(('0.0.0.0', port))
-    while True:
-        data, addr = s.recvfrom(1024)
-        if should_connect(data):
-            return addr
-
 def start(args):
     if not args:
-        # look for audiobox udp annoucement
-        host = scan_udp()
-
-        # create tcp connection
-        # parse and display what we get from it
-
-        # for now, hardcode a specific host
+        # hardcode a specific host
         s = connect_tcp("localhost", 7069)
         s.send(connection_record())
-                
-        process_bytes(Tee("log-%s.bytes" % nowstr(), s))
+
+        bs = Tee("log-%s.bytes" % nowstr(), s)
+        for r in Record.readall(bs):
+            print str(r)
     else:
         (fname, ) = args
-        
-        with open(fname, 'rb') as inf:
-            process_bytes(inf)
+
+        with open(fname, 'rb') as bs:
+            for r in Record.readall(bs):
+                print str(r)
 
 if __name__ == "__main__":
     start(sys.argv[1:])
