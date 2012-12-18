@@ -1,6 +1,7 @@
 import sys
 import re
 import datetime
+import struct
 
 def pp(rb):
     return " ".join(b.encode("hex") for b in rb)
@@ -11,12 +12,13 @@ def process_bytes(bs):
         if not initial:
             break
         assert len(initial) == 8
-        assert initial[0:4] == '\x11\x00\x55\xaa'
-        l = parseint(initial[4:8])
+        signature, l = struct.unpack("II", initial)
+        assert signature == 0xaa550011
         v = bs.read(l)
         assert len(v) == l
         r = Record(v)
         print str(r)
+        
 
 def parseint(l):
     n = 0
