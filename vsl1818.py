@@ -7,16 +7,7 @@ def pp(rb):
     return " ".join(b.encode("hex") for b in rb)
 
 def process_bytes(bs):
-    while True:
-        initial = bs.read(8)
-        if not initial:
-            break
-        assert len(initial) == 8
-        signature, l = struct.unpack("II", initial)
-        assert signature == 0xaa550011
-        v = bs.read(l)
-        assert len(v) == l
-        r = Record(v[:12], v[12:])
+    for r in Record.readall(bs):
         print str(r)
 
 def parsestr(s, n=None):
@@ -43,7 +34,7 @@ class Record(object):
             self.channel = parsestr(channel)
 
         elif self.category == 2:
-            self.c1, self.c2, self.c3, channel = struct.unpack("IIH32s", r)
+            self.c1, channel = struct.unpack("10s32s", r)
             self.channel = parsestr(channel)
         else:
             raise Exception("unknown category %s" % self.category)
@@ -57,9 +48,22 @@ class Record(object):
         elif self.category == 4:
             return "4: %s %s" % (self.e1, self.channel)
         elif self.category == 2:
-            return "2: %s %s %s %s" % (self.c1, self.c2, self.c3, self.channel)
+            return "2: %s %s" % (pp(self.c1), self.channel)
         else:
             assert False
+
+    @staticmethod
+    def readall(bs):
+        while True:
+            initial = bs.read(8)
+            if not initial:
+                return
+            assert len(initial) == 8
+            signature, l = struct.unpack("II", initial)
+            assert signature == 0xaa550011
+            v = bs.read(l)
+            assert len(v) == l
+            yield Record(v[:12], v[12:])
 
 class Tee(object):
     def __init__(self, fname_out, inf):
@@ -76,19 +80,45 @@ def nowstr():
     return "%s-%s-%s--%s-%s-%s" % (
         n.year, n.month, n.day, n.hour, n.minute, n.second)
 
+def connection_record():
+    # TODO: send our real mac address
+    m = struct.pack("IIHH32s32s",
+                    0x01020103,
+                    1234,
+                    0x0003,
+                    10,
+                    'C8:BC:C8:1A:9F:0A',
+                    'AB1818-VSL')
+    h = struct.pack("II", 0xaa550011, len(m))
+    return h + m
+
+def connect_tcp(host, port):
+    s = socket(AF_INET, SOCK_STREAM)
+    s.connect((host, port))
+
+def should_connect(data):
+    (r, ) = list(Record.readall(data))
+
+def scan_udp(port):
+    s = socket(AF_INET, SOCK_DGRAM)
+    s.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
+    s.bind(('0.0.0.0', port))
+    while True:
+        data, addr = s.recvfrom(1024)
+        if should_connect(data):
+            return addr
+
 def start(args):
     if not args:
         # look for audiobox udp annoucement
+        host = scan_udp()
+
         # create tcp connection
         # parse and display what we get from it
-        serverHost = "localhost"
-        serverPort = 7069
 
-        # tcp
-        s = socket(AF_INET, SOCK_STREAM)
-        
-        s.connect((serverHost, serverPort))
-        s.send(identify_bytes())
+        # for now, hardcode a specific host
+        s = connect_tcp("localhost", 7069)
+        s.send(connection_record())
                 
         process_bytes(Tee("log-%s.bytes" % nowstr(), s))
     else:
