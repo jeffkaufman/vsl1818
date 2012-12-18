@@ -16,16 +16,8 @@ def process_bytes(bs):
         assert signature == 0xaa550011
         v = bs.read(l)
         assert len(v) == l
-        r = Record(v)
+        r = Record(v[:12], v[12:])
         print str(r)
-        
-
-def parseint(l):
-    n = 0
-    for x in reversed(list(l)):
-        n *= 256
-        n += ord(x)
-    return n
 
 def parsestr(s, n=None):
     assert '\x00' in s
@@ -34,33 +26,25 @@ def parsestr(s, n=None):
     return s[:s.find('\x00')]
 
 class Record(object):
-    def __init__(self, v):
-        v = v
-        assert v[:4] == '\x03\x01\x02\x01'
-        assert parseint(v[4:8]) == 1234
-        self.category = parseint(v[8:9])
-        assert parseint(v[10:12]) == 10
+    def __init__(self, v, r):
+        unknown1, unknown2, self.category, unknown3 = struct.unpack("IIHH", v)
+        assert unknown1 == 0x01020103
+        assert unknown2 == 1234
+        assert unknown3 == 10
 
         self.channel = ''
 
         if self.category == 5:
-            assert v[12:] == '\x00'*128
+            assert r == '\x00'*128
+
         elif self.category == 4:
-            print pp(v[12:])
-            assert v[12:14] == '\x00\x00'
-            self.e1 = parseint(v[14:16])
-            self.channel = parsestr(v[16:], 48)
+            unknown4, self.e1, channel = struct.unpack("HH48s", r)
+            assert unknown4 == 0
+            self.channel = parsestr(channel)
+
         elif self.category == 2:
-            self.c1 = parseint(v[12])
-            self.c2 = parseint(v[13])
-            self.c3 = v[17:21]
-            self.c4 = v[21]
-            self.channel = v[22:32]
-            trailer = v[32:]
-            self.c5 = {"80e1bf5fff7f00006e2a09000100000070e1bf5fff7f": 'A',
-                       "a0debf5fff7f00001746040001000000e0dfbf5fff7f": 'B',
-                       "c1c70c7ee5d19271000000000000f03f000000c06ddb": 'C'}[
-                trailer.encode('hex')]
+            self.c1, self.c2, self.c3, channel = struct.unpack("IIH32s", r)
+            self.channel = parsestr(channel)
         else:
             raise Exception("unknown category %s" % self.category)
 
@@ -73,8 +57,7 @@ class Record(object):
         elif self.category == 4:
             return "4: %s %s" % (self.e1, self.channel)
         elif self.category == 2:
-            return "2: %s %s %s %s %s %s" % (
-                self.c1, self.c2, self.c3.encode('hex'), pp(self.c4), self.channel, self.c5)
+            return "2: %s %s %s %s" % (self.c1, self.c2, self.c3, self.channel)
         else:
             assert False
 
