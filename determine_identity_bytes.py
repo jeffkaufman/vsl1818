@@ -27,18 +27,14 @@ def identify_bytes():
 def pp(rb):
     return " ".join(b.encode("hex") for b in rb)
 
-def dumpstr(s,n):
-    assert len(s) < n
-    return s + "\x00"*(n-len(s))
-
 def build_identify_bytes():
-    m = "".join([struct.pack("IIHH",
-                             0x01020103,
-                             1234,
-                             0x0003,
-                             10),
-                 dumpstr('C8:BC:C8:1A:9F:0A', 32),
-                 dumpstr('AB1818-VSL', 32)])
+    m = struct.pack("IIHH32s32s",
+                    0x01020103,
+                    1234,
+                    0x0003,
+                    10,
+                    'C8:BC:C8:1A:9F:0A',
+                    'AB1818-VSL')
     h = struct.pack("II", 0xaa550011, len(m))
     return h + m
 
