@@ -4,8 +4,8 @@ import datetime
 import struct
 from socket import *
 
-def pp(rb):
-    return " ".join(b.encode("hex") for b in rb)
+HOST='localhost'
+PORT=7069
 
 def parsestr(s, n=None):
     assert '\x00' in s
@@ -33,120 +33,100 @@ def init_controls():
     for control_encoded, control_decoded in control_table:
         control_encode[control_decoded] = control_encoded
         control_decode[control_encoded] = control_decoded
-
 control_encode = {}
 control_decode = {}
 init_controls()
 
-class Record(object):
-    control_table = []
+class VSL1818(object):
+    def __init__(self):
+        self.connection = None
+        self.levels = None
+        self.channel_display_names = {}
 
-    def __init__(self, v, r):
-        unknown1, unknown2, self.category, unknown3 = struct.unpack("IIHH", v)
+        # channel_name -> control_name -> value
+        self.channels = {}
+
+    def update(self, message_header, message_body):
+        unknown1, unknown2, category, unknown3 = struct.unpack("IIHH", message_header)
         assert unknown1 == 0x01020103
         assert unknown2 == 1234
         assert unknown3 == 10
+        
+        if category == 5:
+            self.levels = struct.unpack("128B", message_body)
 
-        self.channel = ''
-
-        if self.category == 5:
-            self.levels = struct.unpack("128B", r)
-
-        elif self.category == 4:
-            unknown4, self.output_num, channel = struct.unpack("HH48s", r)
+        elif category == 4:
+            unknown4, channel_num, channel_display_name = struct.unpack("HH48s", message_body)
             assert unknown4 == 0
-            self.channel = parsestr(channel)
+            self.channel_display_names[channel_num] = parsestr(channel_display_name)
 
-        elif self.category == 2:
-            control_raw, self.value, channel = struct.unpack("=Hd32s", r)
-            self.channel = parsestr(channel)
-            self.control_parsed = control_decode.get(control_raw, control_raw)
-            
-        else:
-            raise Exception("unknown category %s" % self.category)
-
-        # remove the null padding bytes from the channel
-        self.channel = self.channel.replace('\x00','')
-
-    def __str__(self):
-        if self.category == 5:
-            return "5: %s" % (self.levels, )
-        elif self.category == 4:
-            return "4: %s %s" % (self.output_num, self.channel)
-        elif self.category == 2:
-            return "2: %s %s %s" % (self.control_parsed, self.value, self.channel)
-        else:
-            assert False
-
-    @staticmethod
-    def readall(bs):
-        while True:
-            initial = bs.read(8)
-            if not initial:
+        elif category == 2:
+            control_raw, value, channel = struct.unpack("=Hd32s", message_body)
+            channel = parsestr(channel).split(",")[0]
+            if channel.startswith("fx "):
                 return
-            assert len(initial) == 8
-            signature, l = struct.unpack("II", initial)
-            assert signature == 0xaa550011
-            v = bs.read(l)
-            assert len(v) == l
-            yield Record(v[:12], v[12:])
+            assert channel.startswith("in")
+            channel = int(channel[2:])
 
-class Tee(object):
-    def __init__(self, fname_out, sock):
-        self.sock = sock
-        self.outf = open(fname_out, "w")
+            if channel not in self.channels:
+                self.channels[channel] = {}
+            control = control_decode.get(control_raw, control_raw)
+            self.channels[channel][control] = value
+
+        else:
+            raise Exception("unknown category %s" % category)
+
+    def update_always(self):
+        assert self.connection
+
+        while True:
+            signature, l = struct.unpack("II", self.read(8))
+            assert signature == 0xaa550011
+            v = self.read(l)
+            self.update(v[:12], v[12:])
+
+    def dumpstate(self):
+        for channel, controls in sorted(self.channels.iteritems()):
+            print self.channel_display_names.get(channel, channel)
+            for control, value in sorted(controls.iteritems()):
+                print " ", control, value
 
     def read(self, n):
         s = ""
         def remaining():
             return n-len(s)
         while remaining() > 0:
-            b = self.sock.recv(remaining())
-            self.outf.write(b)
+            b = self.connection.recv(remaining())
             s += b
         return s
 
-def nowstr():
-    n = datetime.datetime.now()
-    return "%s-%s-%s--%s-%s-%s" % (
-        n.year, n.month, n.day, n.hour, n.minute, n.second)
+    def connect(self):
+        assert not self.connection
 
-def connection_record():
-    # TODO: send our real mac address
-    m = struct.pack("IIHH32s32s",
-                    0x01020103,
-                    1234,
-                    0x0003,
-                    10,
-                    'C8:BC:C8:1A:9F:0A',
-                    'AB1818-VSL')
-    h = struct.pack("II", 0xaa550011, len(m))
-    return h + m
+        self.connection = socket(AF_INET, SOCK_STREAM)
+        self.connection.connect((HOST, PORT))
 
-def connect_tcp(host, port):
-    s = socket(AF_INET, SOCK_STREAM)
-    s.connect((host, port))
-    return s
-
-def should_connect(data):
-    (r, ) = list(Record.readall(data))
+        # TODO: send our real mac address
+        message = struct.pack("IIHH32s32s",
+                              0x01020103,
+                              1234,
+                              0x0003,
+                              10,
+                              'C8:BC:C8:1B:9F:0A',
+                              'AB1818-VSL')
+        self.connection.send(struct.pack("II", 0xaa550011, len(message)))
+        self.connection.send(message)
 
 def start(args):
-    if not args:
-        # hardcode a specific host
-        s = connect_tcp("localhost", 7069)
-        s.send(connection_record())
-
-        bs = Tee("log-%s.bytes" % nowstr(), s)
-        for r in Record.readall(bs):
-            if r.category != 5:
-                print str(r)
-    else:
-        (fname, ) = args
-
-        with open(fname, 'rb') as bs:
-            for r in Record.readall(bs):
-                print str(r)
+    assert not args
+    
+    vsl = VSL1818()
+    vsl.connect()
+    try:
+        vsl.update_always()
+    except:
+        vsl.dumpstate()
+        raise
 
 if __name__ == "__main__":
     start(sys.argv[1:])
