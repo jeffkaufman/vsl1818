@@ -4,10 +4,8 @@ Usage:
 1. connect your VSL 1818 AudioBox
 2. start VSL on your computer
 3. run "python vsl1818.py" on the same computer
-4. wait a couple seconds
-5. press "Ctrl+C"
-
-It will dump the current state of all the controls.
+4. load http://localhost:8000 in your web browser
+5. poke around
 
 It's interpreting all the messages all the time, but I don't yet
 have a good interface for displaying them.  It's currently
