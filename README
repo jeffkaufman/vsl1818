@@ -9,5 +9,6 @@ Usage:
 
 It will dump the current state of all the controls.
 
-It's interpreting all the messages all the time, but I don't yet have a good interface for
-displaying them.  It's currently read-only: no support for sending commands back to VSL
+It's interpreting all the messages all the time, but I don't yet
+have a good interface for displaying them.  It's currently
+read-only: no support for sending commands back to VSL
