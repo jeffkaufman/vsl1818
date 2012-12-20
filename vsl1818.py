@@ -13,12 +13,15 @@ import json
 HOST='localhost'
 PORT=7069
 
+MAX_CHANNEL=7 # ignore higher channels: they're SPIDF, ADAT, and DAW
+
 def parsestr(s, n=None):
     assert '\x00' in s
     if n is not None:
         assert len(s) == n
     return s[:s.find('\x00')]
 
+# control_id -> control_name
 control_decode = {
     3000: "master",
     1: "master pan",
@@ -42,9 +45,10 @@ class VSL1818(object):
         self.killed = False
         self.connection = None
         self.levels = None
-        self.channel_display_names = {}
+        self.channel_names = {} # channel_id -> channel_name
+        self.channel_id_strs = {} # channel_id -> channel_id_str
 
-        # channel -> control -> value
+        # channel_id -> control_id -> value
         self.channels = {}
 
     def update(self, message_header, message_body):
@@ -58,25 +62,29 @@ class VSL1818(object):
             self.levels = struct.unpack("128B", message_body)
 
         elif category == 4:
-            unknown4, channel_num, channel_display_name = struct.unpack("HH48s", message_body)
+            unknown4, channel_id, channel_name = struct.unpack("HH48s", message_body)
             assert unknown4 == 0
-            self.channel_display_names[channel_num] = parsestr(channel_display_name)
+            if channel_id > MAX_CHANNEL:
+                return
+            self.channel_names[channel_id] = parsestr(channel_name)
 
         elif category == 2:
-            control, value, channel = struct.unpack("=Hd32s", message_body)
-            channel = parsestr(channel).split(",")[0]
-            if channel.startswith("fx "):
+            control_id, value, channel_id_str = struct.unpack("=Hd32s", message_body)
+            channel_id_str = parsestr(channel_id_str)
+            if channel_id_str.startswith("fx "):
                 return
-            assert channel.startswith("in")
-            channel = int(channel[2:])
-
-            if channel not in self.channels:
-                self.channels[channel] = {}
+            assert channel_id_str.startswith("in")
+            channel_id = int(channel_id_str.split(",")[0][2:])
+            if channel_id > MAX_CHANNEL:
+                return
+            if channel_id not in self.channels:
+                self.channels[channel_id] = {}
+                self.channel_id_strs[channel_id] = channel_id_str
             
-            if control not in control_decode:
-                return # ignoring unknown controls for now
+            if control_id not in control_decode:
+                return # ignoring unknown control_ids for now
 
-            self.channels[channel][control] = value
+            self.channels[channel_id][control_id] = value
 
         else:
             raise Exception("unknown category %s" % category)
@@ -95,15 +103,15 @@ class VSL1818(object):
             return "<p>loading...</p>"
 
         s = ["<table border=1>"]
-        for channel, controls in sorted(self.channels.iteritems()):
-            if channel not in self.channel_display_names:
-                continue # ignoring unknown channels for now
-            display_name = self.channel_display_names[channel]
-            s.append("<tr><td rowspan=%s>%s" % (len(controls), display_name))
-            for control, value in sorted(controls.iteritems()):
+        for channel_id, controls in sorted(self.channels.iteritems()):
+            if channel_id not in self.channel_names:
+                continue # ignoring unknown channel_ids for now
+            channel_name = self.channel_names[channel_id]
+            s.append("<tr><td rowspan=%s>%s" % (len(controls), channel_name))
+            for control_id, value in sorted(controls.iteritems()):
                 if not s[-1].startswith("<tr>"):
                     s.append("<tr>")
-                s.append("<td>%s<td>%s" % (control_decode[control], value))
+                s.append("<td>%s<td>%s" % (control_decode[control_id], value))
         s.append("</table>")
         return "".join(s)
 
@@ -136,56 +144,111 @@ class VSL1818(object):
 def index(vsl):
     s = ["<html>", "<h1>VSL 1818</h1>"]
     for text, target in [["Dump State", "/dump"],
-                         ["List Outputs", "/outputs"]]:
+                         ["List Controls", "/controls"],
+                         ["List Channels", "/channels"]]:
         s.append('<a href="%s">%s</a><br>' % (target, text))
     return "".join(s)
 
-def list_outputs(vsl):
-    s = ["<html>", "<h1>Available Channels</h1>"]
-    for channel in sorted(vsl.channels):
-        if channel not in vsl.channel_display_names:
-            continue # ignoring unknown channels for now
-        display_name = vsl.channel_display_names[channel]
-        s.append('<a href="/output/%s">%s</a><br>' % (channel, display_name))
+def list_controls(vsl):
+    s = ["<html>", "<h1>Available Controls</h1>"]
+    for control_id, control_name in sorted(control_decode.iteritems()):
+        s.append('<a href="/control/%s">%s</a><br>' % (control_id, control_name))
     return "".join(s)
 
-def output(request, vsl):
-    (channel_raw,) = request
-    channel = int(channel_raw)
-    display_name = vsl.channel_display_names[channel]
+def list_channels(vsl):
+    s = ["<html>", "<h1>Available Channels</h1>"]
+    for channel_id in sorted(vsl.channels):
+        if channel_id not in vsl.channel_names:
+            continue # ignoring unknown channel_ids for now
+        channel_name = vsl.channel_names[channel_id]
+        s.append('<a href="/channel/%s">%s</a><br>' % (channel_id, channel_name))
+    return "".join(s)
 
-    s = ["<html>", "<h1>Channel %s</h1>" % display_name]
-    s.append("<style>"
-             ".barfg{background-color:black;margin:0;padding:0}"
-             ".barbg{background-color:#BBB;margin:0;padding:0}"
-             "</style>")
-    controls = vsl.channels[channel]
+CLICK_HANDLER=("<script>" 
+               "function click_handler(fg, bg, control_id, channel_id_str) {"
+               "  return function(e) {"
+               "     var value = e.offsetX/bg.offsetWidth;"
+               "     /* todo: send to server via ajax */"
+               "     console.debug('channel='+channel_id_str + ' control='+control_id + ' value='+value);"
+               "  }"
+               "}"
+               "</script>")
+              
+def channel_control_html(name, value, item_id):
+    return ('<dt>%s<dd>'
+            '<div id="channelcontrol-bg-%s" class="barbg">'
+            '<div id="channelcontrol-fg-%s" class="barfg" style="width:%.2f%%"'
+            '>&nbsp;</div></div>'
+            % (name, item_id, item_id, value*100))
+
+def channel_control_css():
+    return ("<style>"
+            ".barfg{background-color:black;margin:0;padding:0}"
+            ".barbg{background-color:#BBB;margin:0;padding:0}"
+            "</style>")
+
+
+def show_control(request, vsl):
+    (control_raw,) = request
+    control_id = int(control_raw)
+    control_name = control_decode[control_id]
+    
+    s = ["<html>", "<h1>Control %s</h1>" % control_name]
+    s.append(channel_control_css())
+
     s.append("<dl>")
-    for control, value in sorted(controls.iteritems()):
-        s.append("<dt>%s" % control_decode[control])
-        s.append('<dd>'
-                 '<div id="control-bg-%s" class="barbg">'
-                 '<div id="control-fg-%s" class="barfg" style="width:%.2f%%"'
-                 '>&nbsp;</div></div>' % (control, control, value*100))
+    channel_list = []
+    channel_id_strs = []
+    for channel_id, controls in sorted(vsl.channels.iteritems()):
+        if control_id in controls:
+            s.append(channel_control_html(vsl.channel_names[channel_id],
+                                          controls[control_id], channel_id))
+            channel_list.append(channel_id)
+            channel_id_strs.append(vsl.channel_id_strs[channel_id])
     s.append("</dl>")
+
+    s.append(CLICK_HANDLER)
     s.append("<script>"
-             "function click_handler(fg, bg, control, channel) {"
-             "  return function(e) {"
-             "     var value = e.offsetX/bg.offsetWidth;"
-             "     /* todo: send to server via ajax */"
-             "     console.debug('channel='+channel+' control=' + control + 'value=' + value);"
-             "  }"
+             "var channels=%s;"
+             "var channel_id_strs=%s;"
+             "var i = 0;"
+             "for (i = 0 ; i < channels.length ; i++) {"
+             "  var bg = document.getElementById('channelcontrol-bg-' + channels[i]);"
+             "  var fg = document.getElementById('channelchannel-fg-' + channels[i]);"
+             "  bg.onclick = click_handler(fg, bg, %s, channel_id_strs[i]);"
              "}"
-             "var channel=%s;"
+             "</script>" % (json.dumps(channel_list),
+                            json.dumps(channel_id_strs),
+                            control_id))
+    return "\n".join(s)
+
+def show_channel(request, vsl):
+    (channel_id_raw,) = request
+    channel_id = int(channel_id_raw)
+    channel_name = vsl.channel_names[channel_id]
+    channel_id_str = vsl.channel_id_strs[channel_id]
+
+    s = ["<html>", "<h1>Channel %s</h1>" % channel_name]
+    s.append(channel_control_css())
+
+    s.append("<dl>")
+    controls = vsl.channels[channel_id]
+    for control_id, value in sorted(controls.iteritems()):
+        s.append(channel_control_html(control_decode[control_id], value, control_id))
+    s.append("</dl>")
+
+    s.append(CLICK_HANDLER)
+    s.append("<script>"
              "var controls=%s;"
              "var i = 0;"
              "for (i = 0 ; i < controls.length ; i++) {"
-             "  var bg = document.getElementById('control-bg-' + controls[i]);"
-             "  var fg = document.getElementById('control-fg-' + controls[i]);"
-             "  bg.onclick = click_handler(fg, bg, controls[i], channel);"
+             "  var bg = document.getElementById('channelcontrol-bg-' + controls[i]);"
+             "  var fg = document.getElementById('channelcontrol-fg-' + controls[i]);"
+             "  bg.onclick = click_handler(fg, bg, controls[i], %s);"
              "}"
-             "</script>" % (channel, json.dumps(list(controls))))
-    return "".join(s)
+             "</script>" % (json.dumps(list(controls)),
+                            json.dumps(channel_id_str)))
+    return "\n".join(s)
 
 def handle_request(request, vsl):
     assert not request[0]
@@ -193,10 +256,14 @@ def handle_request(request, vsl):
 
     if not request[0]:
         return index(vsl)
-    if request == ['outputs']:
-        return list_outputs(vsl)
-    if request[0] == "output":
-        return output(request[1:], vsl)
+    if request == ['channels']:
+        return list_channels(vsl)
+    if request[0] == "channel":
+        return show_channel(request[1:], vsl)
+    if request == ['controls']:
+        return list_controls(vsl)
+    if request[0] == "control":
+        return show_control(request[1:], vsl)
     if request == ['dump']:
         return vsl.dumpstate()
     raise Exception("Unknown Request Path: '%s'" % request)
@@ -206,9 +273,9 @@ class MockVSL():
         self.loaded = False
         self.killed = False
         self.levels = None
-        self.channel_display_names = {1: "main", 2: "aux"}
+        self.channel_names = {1: "main", 2: "aux"}
 
-        # channel_name -> control_name -> value
+        # channel_id -> control_id -> value
         self.channels = {1:{}, 2:{}}
 
     def update_always(self):
