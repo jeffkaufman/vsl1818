@@ -203,9 +203,6 @@ def show_sliders(title, vsl, slider_ids):
              ".barbg{background-color:#BBB;margin:0;padding:0}"
              "</style>")
 
-    # call this in callback
-    #fg: style="width:%.2f%%"' % value*100
-
     s.append("<dl>")
     for slider_name, channel_id, control_id in slider_ids:
         s.append('<dt>%s<dd>'
@@ -233,6 +230,25 @@ def show_sliders(title, vsl, slider_ids):
              "</script>" % 
              json.dumps([(channel_id, control_id, vsl.channel_id_strs[channel_id])
                          for slider_name, channel_id, control_id in slider_ids]))
+
+    s.append("<script>"
+             "setInterval(function() {"
+             "  loadAjax('GET', '/sliders?q=%s', function(response) {"
+             "    r = JSON.parse(response);"
+             "    var i;"
+             "    for (i = 0 ; i < r.length ; i++) {"
+             "      var channel_id = r[i][0];"
+             "      var control_id = r[i][1];"
+             "      var width_percent = r[i][2];"
+             "      var fg = document.getElementById('slider-fg-' + channel_id"
+             "                                              + '-' + control_id);"
+             "      fg.style.width = width_percent;"
+             "    }"
+             "  });"
+             "}, 1000);"
+             "</script>" % ",".join("%s-%s" % (channel_id, control_id)
+                                    for slider_name, channel_id, control_id in slider_ids))
+
     return "\n".join(s)
 
 def show_control(request, vsl):
@@ -255,7 +271,18 @@ def show_channel(request, vsl):
                for control_id in sorted(controls)]
     return show_sliders("Channel %s" % channel_name, vsl, sliders)
 
-def handle_request(request, vsl):
+def json_sliders(query_string, vsl):
+    assert query_string.startswith("q=")
+    request = query_string.replace("q=", "")
+
+    s = []
+    for slider in request.split(","):
+        channel_id_s, control_id_s = slider.split("-")
+        channel_id, control_id = int(channel_id_s), int(control_id_s)
+        s.append((channel_id, control_id, '%.2f%%' % (vsl.channels[channel_id][control_id]*100)))
+    return json.dumps(s)
+
+def handle_request(request, query_string, vsl):
     assert not request[0]
     request = request[1:]
 
@@ -269,6 +296,8 @@ def handle_request(request, vsl):
         return list_controls(vsl)
     if request[0] == "control":
         return show_control(request[1:], vsl)
+    if request == ["sliders"]:
+        return "application/json", json_sliders(query_string, vsl)
     if request == ['dump']:
         return vsl.dumpstate()
     raise Exception("Unknown Request Path: '%s'" % request)
@@ -288,20 +317,21 @@ class MockVSL():
         i = 0
         while not self.killed:
             c = float(i % 256)
+            q = c/256
 
             self.levels = (c, c, 256-c, 256-c)
-            self.channels[1][3000] = 0.0
-            self.channels[1][3005] = .1
-            self.channels[1][3007] = .5
-            self.channels[1][3009] = .9
-            self.channels[1][1] = 1.0
+            self.channels[1][3000] = .3*q
+            self.channels[1][3005] = .1*q
+            self.channels[1][3007] = .5*q
+            self.channels[1][3009] = .9*q
+            self.channels[1][1] = 1.0*q
             self.channels[2][3000] = 0.1
             self.channels[2][3005] = .2
             self.channels[2][3007] = .3
             self.channels[2][3009] = .4
             self.channels[2][1] = .5
 
-            time.sleep(1)
+            time.sleep(.1)
             i += 1
 
     def dumpstate(self):
@@ -321,10 +351,17 @@ def start(args):
 
     def vsl_app(environ, start_response):
         try:
-            response = handle_request(environ["PATH_INFO"].split("/"), vsl)
-            headers = [('Content-type', 'text/html')]
+            response = handle_request(
+                environ["PATH_INFO"].split("/"),
+                environ["QUERY_STRING"],
+                vsl)
+            if type(response) == type(""):
+                content_type = 'text/html'
+            else:
+                content_type, response = response
+            headers = [('Content-type', content_type)]
             start_response("200 OK", headers)
-            return str(response)
+            return response
         except Exception:
             tb = traceback.format_exc()
             headers = [('Content-type', 'text/plain')]
