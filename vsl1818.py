@@ -187,7 +187,6 @@ def channel_control_css():
             ".barbg{background-color:#BBB;margin:0;padding:0}"
             "</style>")
 
-
 def show_control(request, vsl):
     (control_raw,) = request
     control_id = int(control_raw)
@@ -277,6 +276,7 @@ class MockVSL():
 
         # channel_id -> control_id -> value
         self.channels = {1:{}, 2:{}}
+        self.channel_id_strs = {1:"in1,0,2", 2:"in2,0,2"}
 
     def update_always(self):
         i = 0
