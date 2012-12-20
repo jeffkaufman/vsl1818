@@ -165,18 +165,18 @@ def list_channels(vsl):
     return "".join(s)
 
 CLICK_HANDLER=("<script>"
-               "function click_handler(fg, bg, channel_id_str, control_id) {"
+               "function click_handler(fg, bg, channel_id, control_id) {"
                "  return function(e) {"
                "     var value = e.offsetX/bg.offsetWidth;"
-               "     /* todo: send to server via ajax */"
-               "     console.debug('channel='+channel_id_str + ' control='+control_id + ' value='+value);"
+               "     var update_info = channel_id + ' ' + control_id + ' ' + value;"
+               "     loadAjax('POST', '/update', update_info, function() { });"
                "  }"
                "}"
                "</script>")
 
 XML_HTTP_REQUEST = (
     "<script>"
-    "function loadAjax(method, request, callback) {"
+    "function loadAjax(method, request, body, callback) {"
     "  var xr;"
     "  if (window.XMLHttpRequest) {"
     "    /* modern browsers */"
@@ -191,7 +191,7 @@ XML_HTTP_REQUEST = (
     "    }"
     "  });"
     "  xr.open(method, request, true);"
-    "  xr.send();"
+    "  xr.send(body);"
     "}"
     "</script>")
 
@@ -215,25 +215,24 @@ def show_sliders(title, vsl, slider_ids):
     s.append(XML_HTTP_REQUEST)
     s.append(CLICK_HANDLER)
     s.append("<script>"
-             "var sliders=%s;" # channel_id, control_id, channel_id_str
+             "var sliders=%s;" # channel_id, control_id,
              "var i = 0;"
              "for (i = 0 ; i < sliders.length ; i++) {"
              "  var channel_id = sliders[i][0];"
              "  var control_id = sliders[i][1];"
-             "  var channel_id_str = sliders[i][2];"
              "  var bg = document.getElementById('slider-bg-' + channel_id"
              "                                          + '-' + control_id);"
              "  var fg = document.getElementById('slider-fg-' + channel_id"
              "                                          + '-' + control_id);"
-             "  bg.onclick = click_handler(fg, bg, channel_id_str, control_id);"
+             "  bg.onclick = click_handler(fg, bg, channel_id, control_id);"
              "}"
              "</script>" % 
-             json.dumps([(channel_id, control_id, vsl.channel_id_strs[channel_id])
+             json.dumps([(channel_id, control_id)
                          for slider_name, channel_id, control_id in slider_ids]))
 
     s.append("<script>"
              "setInterval(function() {"
-             "  loadAjax('GET', '/sliders?q=%s', function(response) {"
+             "  loadAjax('GET', '/sliders?q=%s', '', function(response) {"
              "    r = JSON.parse(response);"
              "    var i;"
              "    for (i = 0 ; i < r.length ; i++) {"
@@ -282,7 +281,15 @@ def json_sliders(query_string, vsl):
         s.append((channel_id, control_id, '%.2f%%' % (vsl.channels[channel_id][control_id]*100)))
     return json.dumps(s)
 
-def handle_request(request, query_string, vsl):
+def process_update(post_body, vsl):
+    channel_id_s, control_id_s, value_s = post_body.split()
+    channel_id = int(channel_id_s)
+    control_id = int(control_id_s)
+    value = float(value_s)
+
+    vsl.send_to_host(channel_id, control_id, value)
+
+def handle_request(request, query_string, post_body, vsl):
     assert not request[0]
     request = request[1:]
 
@@ -296,6 +303,9 @@ def handle_request(request, query_string, vsl):
         return list_controls(vsl)
     if request[0] == "control":
         return show_control(request[1:], vsl)
+    if request == ["update"]:
+        process_update(post_body, vsl)
+        return ""
     if request == ["sliders"]:
         return "application/json", json_sliders(query_string, vsl)
     if request == ['dump']:
@@ -312,9 +322,19 @@ class MockVSL():
         # channel_id -> control_id -> value
         self.channels = {1:{}, 2:{}}
         self.channel_id_strs = {1:"in1,0,2", 2:"in2,0,2"}
+        
+    def send_to_host(self, channel_id, control_id, value):
+        self.channels[channel_id][control_id] = value
 
     def update_always(self):
         i = 0
+
+        self.channels[2][3000] = 0.1
+        self.channels[2][3005] = .2
+        self.channels[2][3007] = .3
+        self.channels[2][3009] = .4
+        self.channels[2][1] = .5
+
         while not self.killed:
             c = float(i % 256)
             q = c/256
@@ -325,11 +345,6 @@ class MockVSL():
             self.channels[1][3007] = .5*q
             self.channels[1][3009] = .9*q
             self.channels[1][1] = 1.0*q
-            self.channels[2][3000] = 0.1
-            self.channels[2][3005] = .2
-            self.channels[2][3007] = .3
-            self.channels[2][3009] = .4
-            self.channels[2][1] = .5
 
             time.sleep(.1)
             i += 1
@@ -350,10 +365,15 @@ def start(args):
     update_thread.start()
 
     def vsl_app(environ, start_response):
+        post_body = None
+        if environ["REQUEST_METHOD"] == "POST":
+            post_body = environ["wsgi.input"].read(int(environ["CONTENT_LENGTH"]))
+        
         try:
             response = handle_request(
                 environ["PATH_INFO"].split("/"),
                 environ["QUERY_STRING"],
+                post_body,
                 vsl)
             if type(response) == type(""):
                 content_type = 'text/html'
