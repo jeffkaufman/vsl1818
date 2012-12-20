@@ -56,7 +56,7 @@ class VSL1818(object):
         assert unknown1 == 0x01020103
         assert unknown2 == 1234
         assert unknown3 == 10
-        
+
         if category == 5:
             self.loaded = True # we're not fully loaded until we get some levels
             self.levels = struct.unpack("128B", message_body)
@@ -80,7 +80,7 @@ class VSL1818(object):
             if channel_id not in self.channels:
                 self.channels[channel_id] = {}
                 self.channel_id_strs[channel_id] = channel_id_str
-            
+
             if control_id not in control_decode:
                 return # ignoring unknown control_ids for now
 
@@ -164,8 +164,8 @@ def list_channels(vsl):
         s.append('<a href="/channel/%s">%s</a><br>' % (channel_id, channel_name))
     return "".join(s)
 
-CLICK_HANDLER=("<script>" 
-               "function click_handler(fg, bg, control_id, channel_id_str) {"
+CLICK_HANDLER=("<script>"
+               "function click_handler(fg, bg, channel_id_str, control_id) {"
                "  return function(e) {"
                "     var value = e.offsetX/bg.offsetWidth;"
                "     /* todo: send to server via ajax */"
@@ -173,81 +173,87 @@ CLICK_HANDLER=("<script>"
                "  }"
                "}"
                "</script>")
-              
-def channel_control_html(name, value, item_id):
-    return ('<dt>%s<dd>'
-            '<div id="channelcontrol-bg-%s" class="barbg">'
-            '<div id="channelcontrol-fg-%s" class="barfg" style="width:%.2f%%"'
-            '>&nbsp;</div></div>'
-            % (name, item_id, item_id, value*100))
 
-def channel_control_css():
-    return ("<style>"
-            ".barfg{background-color:black;margin:0;padding:0}"
-            ".barbg{background-color:#BBB;margin:0;padding:0}"
-            "</style>")
+XML_HTTP_REQUEST = (
+    "<script>"
+    "function loadAjax(method, request, callback) {"
+    "  var xr;"
+    "  if (window.XMLHttpRequest) {"
+    "    /* modern browsers */"
+    "    xr = new XMLHttpRequest();"
+    "  } else {"
+    "    /* IE6, IE5 */"
+    "    xr = new ActiveXObject('Microsoft.XMLHTTP');"
+    "  }"
+    "  xr.onreadystatechange=(function() {"
+    "    if (xr.readyState==4 && xr.status==200) {"
+    "      callback(xr.responseText);"
+    "    }"
+    "  });"
+    "  xr.open(method, request, true);"
+    "  xr.send();"
+    "}"
+    "</script>")
+
+def show_sliders(title, vsl, slider_ids):
+    s = ["<html>", "<h1>%s</h1>" % title]
+
+    s.append("<style>"
+             ".barfg{background-color:black;margin:0;padding:0}"
+             ".barbg{background-color:#BBB;margin:0;padding:0}"
+             "</style>")
+
+    # call this in callback
+    #fg: style="width:%.2f%%"' % value*100
+
+    s.append("<dl>")
+    for slider_name, channel_id, control_id in slider_ids:
+        s.append('<dt>%s<dd>'
+                 '<div id="slider-bg-%s-%s" class="barbg">'
+                 '  <div id="slider-fg-%s-%s" class="barfg">'
+                 '    &nbsp;</div></div>'
+                 % (slider_name, channel_id, control_id, channel_id, control_id))
+    s.append("</dl>")
+
+    s.append(XML_HTTP_REQUEST)
+    s.append(CLICK_HANDLER)
+    s.append("<script>"
+             "var sliders=%s;" # channel_id, control_id, channel_id_str
+             "var i = 0;"
+             "for (i = 0 ; i < sliders.length ; i++) {"
+             "  var channel_id = sliders[i][0];"
+             "  var control_id = sliders[i][1];"
+             "  var channel_id_str = sliders[i][2];"
+             "  var bg = document.getElementById('slider-bg-' + channel_id"
+             "                                          + '-' + control_id);"
+             "  var fg = document.getElementById('slider-fg-' + channel_id"
+             "                                          + '-' + control_id);"
+             "  bg.onclick = click_handler(fg, bg, channel_id_str, control_id);"
+             "}"
+             "</script>" % 
+             json.dumps([(channel_id, control_id, vsl.channel_id_strs[channel_id])
+                         for slider_name, channel_id, control_id in slider_ids]))
+    return "\n".join(s)
 
 def show_control(request, vsl):
     (control_raw,) = request
     control_id = int(control_raw)
     control_name = control_decode[control_id]
-    
-    s = ["<html>", "<h1>Control %s</h1>" % control_name]
-    s.append(channel_control_css())
 
-    s.append("<dl>")
-    channel_list = []
-    channel_id_strs = []
-    for channel_id, controls in sorted(vsl.channels.iteritems()):
-        if control_id in controls:
-            s.append(channel_control_html(vsl.channel_names[channel_id],
-                                          controls[control_id], channel_id))
-            channel_list.append(channel_id)
-            channel_id_strs.append(vsl.channel_id_strs[channel_id])
-    s.append("</dl>")
-
-    s.append(CLICK_HANDLER)
-    s.append("<script>"
-             "var channels=%s;"
-             "var channel_id_strs=%s;"
-             "var i = 0;"
-             "for (i = 0 ; i < channels.length ; i++) {"
-             "  var bg = document.getElementById('channelcontrol-bg-' + channels[i]);"
-             "  var fg = document.getElementById('channelchannel-fg-' + channels[i]);"
-             "  bg.onclick = click_handler(fg, bg, %s, channel_id_strs[i]);"
-             "}"
-             "</script>" % (json.dumps(channel_list),
-                            json.dumps(channel_id_strs),
-                            control_id))
-    return "\n".join(s)
+    sliders = [(vsl.channel_names[channel_id], channel_id, control_id)
+               for channel_id, controls in sorted(vsl.channels.items())
+               if control_id in controls]
+    return show_sliders("Control %s" % control_name, vsl, sliders)
 
 def show_channel(request, vsl):
     (channel_id_raw,) = request
     channel_id = int(channel_id_raw)
     channel_name = vsl.channel_names[channel_id]
-    channel_id_str = vsl.channel_id_strs[channel_id]
 
-    s = ["<html>", "<h1>Channel %s</h1>" % channel_name]
-    s.append(channel_control_css())
-
-    s.append("<dl>")
     controls = vsl.channels[channel_id]
-    for control_id, value in sorted(controls.iteritems()):
-        s.append(channel_control_html(control_decode[control_id], value, control_id))
-    s.append("</dl>")
-
-    s.append(CLICK_HANDLER)
-    s.append("<script>"
-             "var controls=%s;"
-             "var i = 0;"
-             "for (i = 0 ; i < controls.length ; i++) {"
-             "  var bg = document.getElementById('channelcontrol-bg-' + controls[i]);"
-             "  var fg = document.getElementById('channelcontrol-fg-' + controls[i]);"
-             "  bg.onclick = click_handler(fg, bg, controls[i], %s);"
-             "}"
-             "</script>" % (json.dumps(list(controls)),
-                            json.dumps(channel_id_str)))
-    return "\n".join(s)
+    sliders = [(control_decode[control_id], channel_id, control_id)
+               for control_id in sorted(controls)]
+    return show_sliders("Channel %s" % channel_name, vsl, sliders)
 
 def handle_request(request, vsl):
     assert not request[0]
@@ -282,13 +288,18 @@ class MockVSL():
         i = 0
         while not self.killed:
             c = float(i % 256)
-            
+
             self.levels = (c, c, 256-c, 256-c)
             self.channels[1][3000] = 0.0
             self.channels[1][3005] = .1
             self.channels[1][3007] = .5
             self.channels[1][3009] = .9
             self.channels[1][1] = 1.0
+            self.channels[2][3000] = 0.1
+            self.channels[2][3005] = .2
+            self.channels[2][3007] = .3
+            self.channels[2][3009] = .4
+            self.channels[2][1] = .5
 
             time.sleep(1)
             i += 1
