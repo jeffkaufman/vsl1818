@@ -39,6 +39,10 @@ control_decode = {
     3063: "post",
     }
 
+binary_controls = ["mute", "phase reverse", "post"]
+for bc in binary_controls:
+    assert bc in control_decode.values()
+
 class VSL1818(object):
     def __init__(self):
         self.loaded = False
@@ -124,6 +128,27 @@ class VSL1818(object):
             s += b
         return s
 
+    def sendmsg(self, message):
+        self.connection.send(struct.pack("II", 0xaa550011, len(message)))        
+        self.connection.send(message)        
+
+    def send_to_host(self, channel_id, control_id, value):
+        assert channel_id in self.channels
+        assert control_id in self.channels[channel_id]
+        if control_decode[control_id] in binary_controls:
+            value = int(value+0.5) # round it
+
+        header = struct.pack("IIHH",
+                             0x01020103,
+                             1234,
+                             2, # control update
+                             10)
+
+        channel_id_str = self.channel_id_strs[channel_id]
+        body = struct.pack("=Hd32s", control_id, value, channel_id_str)
+        
+        self.sendmsg(header + body)
+    
     def connect(self):
         assert not self.connection
 
@@ -131,15 +156,14 @@ class VSL1818(object):
         self.connection.connect((HOST, PORT))
 
         # TODO: send our real mac address
-        message = struct.pack("IIHH32s32s",
-                              0x01020103,
-                              1234,
-                              0x0003,
-                              10,
-                              'C8:BC:C8:1B:9F:0A',
-                              'AB1818-VSL')
-        self.connection.send(struct.pack("II", 0xaa550011, len(message)))
-        self.connection.send(message)
+        self.sendmsg(struct.pack("IIHH32s32s",
+                                 0x01020103,
+                                 1234,
+                                 0x0003,
+                                 10,
+                                 'C8:BC:C8:1B:9F:0A',
+                                 'AB1818-VSL'))
+
 
 def index(vsl):
     s = ["<html>", "<h1>VSL 1818</h1>"]
@@ -244,7 +268,7 @@ def show_sliders(title, vsl, slider_ids):
              "      fg.style.width = width_percent;"
              "    }"
              "  });"
-             "}, 1000);"
+             "}, 100);"
              "</script>" % ",".join("%s-%s" % (channel_id, control_id)
                                     for slider_name, channel_id, control_id in slider_ids))
 
@@ -389,7 +413,7 @@ def start(args):
             return tb
 
     httpd = wsgiref.simple_server.make_server('', 8000, vsl_app)
-    print "Serving HTTP on port 8000..."
+    print "In your browser load http://localhost:8000"
 
     try:
         httpd.serve_forever()
