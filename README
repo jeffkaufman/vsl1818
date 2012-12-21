@@ -7,4 +7,5 @@ Usage:
 4. load http://localhost:8000 in your web browser
 5. poke around
 
-It all works.
+You can adjust levels (master, aux3/4, aux5/6, aux7/8), panning,
+and the high-pass filter for each of the eight primary inputs.
