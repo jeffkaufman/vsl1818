@@ -7,6 +7,4 @@ Usage:
 4. load http://localhost:8000 in your web browser
 5. poke around
 
-It's interpreting all the messages all the time, but I don't yet
-have a good interface for displaying them.  It's currently
-read-only: no support for sending commands back to VSL
+It all works.
