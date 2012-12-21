@@ -137,6 +137,10 @@ class VSL1818(object):
         assert control_id in self.channels[channel_id]
         if control_decode[control_id] in binary_controls:
             value = int(value+0.5) # round it
+        if value > 1:
+            value = 1
+        if value < 0:
+            value = 0
 
         header = struct.pack("IIHH",
                              0x01020103,
@@ -164,34 +168,38 @@ class VSL1818(object):
                                  'C8:BC:C8:1B:9F:0A',
                                  'AB1818-VSL'))
 
+def begin(title):
+    return ["<html>",
+            "%s<br>" % title,
+            "<style>body{font-size:200%}</style>"]
 
 def index(vsl):
-    s = ["<html>", "<h1>VSL 1818</h1>"]
+    s = begin("VSL 1818")
     for text, target in [["Dump State", "/dump"],
                          ["List Controls", "/controls"],
                          ["List Channels", "/channels"]]:
-        s.append('<a href="%s">%s</a><br>' % (target, text))
+        s.append('<br><a href="%s">%s</a><br>' % (target, text))
     return "".join(s)
 
 def list_controls(vsl):
-    s = ["<html>", "<h1>Available Controls</h1>"]
+    s = begin("Available Controls")
     for control_id, control_name in sorted(control_decode.iteritems()):
-        s.append('<a href="/control/%s">%s</a><br>' % (control_id, control_name))
+        s.append('<br><a href="/control/%s">%s</a><br>' % (control_id, control_name))
     return "".join(s)
 
 def list_channels(vsl):
-    s = ["<html>", "<h1>Available Channels</h1>"]
+    s = begin("Available Channels")
     for channel_id in sorted(vsl.channels):
         if channel_id not in vsl.channel_names:
             continue # ignoring unknown channel_ids for now
         channel_name = vsl.channel_names[channel_id]
-        s.append('<a href="/channel/%s">%s</a><br>' % (channel_id, channel_name))
+        s.append('<br><a href="/channel/%s">%s</a><br>' % (channel_id, channel_name))
     return "".join(s)
 
 CLICK_HANDLER=("<script>"
                "function click_handler(fg, bg, channel_id, control_id) {"
                "  return function(e) {"
-               "     var value = e.offsetX/bg.offsetWidth;"
+               "     var value = e.pageX/bg.offsetWidth;"
                "     var update_info = channel_id + ' ' + control_id + ' ' + value;"
                "     loadAjax('POST', '/update', update_info, function() { });"
                "  }"
@@ -220,16 +228,16 @@ XML_HTTP_REQUEST = (
     "</script>")
 
 def show_sliders(title, vsl, slider_ids):
-    s = ["<html>", "<h1>%s</h1>" % title]
+    s = begin(title)
 
     s.append("<style>"
+             "body{margin:0;padding:0}"
              ".barfg{background-color:black;margin:0;padding:0}"
              ".barbg{background-color:#BBB;margin:0;padding:0}"
              "</style>")
 
-    s.append("<dl>")
     for slider_name, channel_id, control_id in slider_ids:
-        s.append('<dt>%s<dd>'
+        s.append('<br>%s<br>'
                  '<div id="slider-bg-%s-%s" class="barbg">'
                  '  <div id="slider-fg-%s-%s" class="barfg">'
                  '    &nbsp;</div></div>'
