@@ -13,8 +13,6 @@ import json
 HOST='localhost'
 PORT=7069
 
-MAX_CHANNEL=7 # ignore higher channels: they're SPIDF, ADAT, and DAW
-
 def parsestr(s, n=None):
     assert '\x00' in s
     if n is not None:
@@ -68,8 +66,6 @@ class VSL1818(object):
         elif category == 4:
             unknown4, channel_id, channel_name = struct.unpack("HH48s", message_body)
             assert unknown4 == 0
-            if channel_id > MAX_CHANNEL:
-                return
             self.channel_names[channel_id] = parsestr(channel_name)
 
         elif category == 2:
@@ -79,8 +75,6 @@ class VSL1818(object):
                 return
             assert channel_id_str.startswith("in")
             channel_id = int(channel_id_str.split(",")[0][2:])
-            if channel_id > MAX_CHANNEL:
-                return
             if channel_id not in self.channels:
                 self.channels[channel_id] = {}
                 self.channel_id_strs[channel_id] = channel_id_str
