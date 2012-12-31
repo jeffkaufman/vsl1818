@@ -9,6 +9,7 @@ import threading
 import traceback
 import time
 import json
+import cgi
 
 HOST='localhost'
 PORT=7069
@@ -123,8 +124,8 @@ class VSL1818(object):
         return s
 
     def sendmsg(self, message):
-        self.connection.send(struct.pack("II", 0xaa550011, len(message)))        
-        self.connection.send(message)        
+        self.connection.send(struct.pack("II", 0xaa550011, len(message)))
+        self.connection.send(message)
 
     def send_to_host(self, channel_id, control_id, value):
         assert channel_id in self.channels
@@ -144,9 +145,9 @@ class VSL1818(object):
 
         channel_id_str = self.channel_id_strs[channel_id]
         body = struct.pack("=Hd32s", control_id, value, channel_id_str)
-        
+
         self.sendmsg(header + body)
-    
+
     def connect(self):
         assert not self.connection
 
@@ -183,11 +184,33 @@ def list_controls(vsl):
 
 def list_channels(vsl):
     s = begin("Available Channels")
+    s.append('<a href="/rename_channels">change names</a><br>')
     for channel_id in sorted(vsl.channels):
         if channel_id not in vsl.channel_names:
             continue # ignoring unknown channel_ids for now
         channel_name = vsl.channel_names[channel_id]
         s.append('<br><a href="/channel/%s">%s</a><br>' % (channel_id, channel_name))
+    return "".join(s)
+
+def rename_channels(vsl, post_body):
+    if post_body:
+        for key_value in post_body.split('&'):
+            key, value = key_value.split('=')
+            channel_id = int(key)
+            vsl.channel_names[channel_id] = value
+
+    s = begin("Rename Channels")
+    a = s.append
+    a('<a href="/">done</a><br>')
+    a('<form action="/rename_channels" method="post">')
+
+    for channel_id in sorted(vsl.channels):
+        if channel_id not in vsl.channel_names:
+            continue # ignoring unknown channel_ids for now
+        a('<input type="text" name="%s" value="%s"><br>' % (
+                channel_id, cgi.escape(vsl.channel_names[channel_id], quote=True)))
+    a('<input type=submit value=update>')
+    a('</form>')
     return "".join(s)
 
 CLICK_HANDLER=("<script>"
@@ -252,7 +275,7 @@ def show_sliders(title, vsl, slider_ids):
              "                                          + '-' + control_id);"
              "  bg.onclick = click_handler(fg, bg, channel_id, control_id);"
              "}"
-             "</script>" % 
+             "</script>" %
              json.dumps([(channel_id, control_id)
                          for slider_name, channel_id, control_id in slider_ids]))
 
@@ -321,6 +344,8 @@ def handle_request(request, query_string, post_body, vsl):
 
     if not request[0]:
         return index(vsl)
+    if request == ['rename_channels']:
+        return rename_channels(vsl, post_body)
     if request == ['channels']:
         return list_channels(vsl)
     if request[0] == "channel":
@@ -348,7 +373,7 @@ class MockVSL():
         # channel_id -> control_id -> value
         self.channels = {1:{}, 2:{}}
         self.channel_id_strs = {1:"in1,0,2", 2:"in2,0,2"}
-        
+
     def send_to_host(self, channel_id, control_id, value):
         self.channels[channel_id][control_id] = value
 
@@ -394,7 +419,6 @@ def start(args):
         post_body = None
         if environ["REQUEST_METHOD"] == "POST":
             post_body = environ["wsgi.input"].read(int(environ["CONTENT_LENGTH"]))
-        
         try:
             response = handle_request(
                 environ["PATH_INFO"].split("/"),

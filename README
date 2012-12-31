@@ -10,6 +10,9 @@ Usage:
 You can adjust levels (master, aux3/4, aux5/6, aux7/8), panning,
 and the high-pass filter for every channel.
 
+You can name the channels, but the names aren't sent to VSL.  Instead
+the names are just used for all the clients connected to this program.
+
 http://www.youtube.com/watch?v=ciWhHaIoN0A
 
 Details and background: http://www.jefftk.com/news/2012-12-21
