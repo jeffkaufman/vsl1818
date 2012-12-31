@@ -85,9 +85,10 @@ control_hierarchy = {
 
 # control_id -> control_name
 control_decode = {}
-def populate_control_decode(hierarchy, path=None):
-    if path is None:
+def populate_control_decode(hierarchy=None, path=None):
+    if path is None and hierarchy is None:
         path = []
+        hierarchy = control_hierarchy
         control_decode.clear()
 
     for key, value in hierarchy.iteritems():
@@ -96,7 +97,7 @@ def populate_control_decode(hierarchy, path=None):
             populate_control_decode(value, child_path)
         else:
             control_decode[value] = " ".join(child_path)
-populate_control_decode(control_hierarchy)
+populate_control_decode()
 
 binary_controls = [control_hierarchy["mute"],
                    control_hierarchy["post"],
@@ -112,6 +113,12 @@ binary_controls = [control_hierarchy["mute"],
                    control_hierarchy["compressor"]["limit"],
                    control_hierarchy["compressor"]["auto"],
                    control_hierarchy["noise gate"]["enable"]]
+
+renameable_controls = [control_hierarchy["master"]["gain"],
+                       control_hierarchy["aux 3-4"]["gain"],
+                       control_hierarchy["aux 5-6"]["gain"],
+                       control_hierarchy["aux 7-8"]["gain"]]
+
 
 # make something html-safe
 def h(s, quote=False):
@@ -253,10 +260,10 @@ def index(vsl):
     return "".join(s)
 
 # operate_on is channel or control
-def list_helper(vsl, operate_on, ids_to_names):
+def list_helper(vsl, operate_on, id_to_names):
     s = begin("Available %ss" % operate_on)
     s.append('<a href="/rename_%ss">change names</a><br>' % operate_on)
-    for key, value in sorted(ids_to_names.iteritems()):
+    for key, value in sorted(id_to_names.iteritems()):
         s.append('<br><a href="/%s/%s">%s</a><br>' % (operate_on, key, h(value)))
     return "".join(s)
 
@@ -267,29 +274,56 @@ def list_channels(vsl):
     return list_helper(vsl, "channel", vsl.channel_names)
 
 # operate_on is either 'channels' or 'controls'
-def rename_helper(vsl, post_body, operate_on, mutable_ids_to_names):
+def rename_helper(vsl, post_body, operate_on, id_to_names, update_fn):
     if post_body:
         for key_value in post_body.split('&'):
             key, value = key_value.split('=')
-            mutable_ids_to_names[int(key)] = urllib2.unquote(value).replace('+', ' ')
+            key, value = int(key), urllib2.unquote(value).replace('+', ' ')
+            update_fn(key, value)
+            id_to_names[key] = value
 
     s = begin("Rename %s" % operate_on)
     a = s.append
     a('<a href="/">done</a><br>')
     a('<form action="/rename_%s" method="post">' % operate_on)
 
-    for key in sorted(mutable_ids_to_names):
+    for key in sorted(id_to_names):
         a('<input type="text" name="%s" value="%s"><br>' % (
-                key, h(mutable_ids_to_names[key], quote=True)))
+                key, h(id_to_names[key], quote=True)))
     a('<input type=submit value=update>')
     a('</form>')
     return "".join(s)
 
 def rename_channels(vsl, post_body):
-    return rename_helper(vsl, post_body, "channels", vsl.channel_names)
+    def update_fn(channel_id, channel_name):
+        vsl.channel_names[channel_id] = channel_name
+        return vsl.channel_names
+    return rename_helper(vsl, post_body, "channels", vsl.channel_names, update_fn)
 
 def rename_controls(vsl, post_body):
-    return rename_helper(vsl, post_body, "controls", vsl.control_names)
+    # we only support renaming top-level entries in the hierarchy, and they're identified
+    # by the id of one of their child named "gain".
+    id_to_names = {}
+    for control_id in renameable_controls:
+        for control_group_name, control_group_value in control_hierarchy.iteritems():
+            if type(control_group_value) != type({}) or "gain" not in control_group_value:
+                continue
+            if control_group_value["gain"] == control_id:
+                id_to_names[control_id] = control_group_name
+    assert len(renameable_controls) == len(id_to_names)
+
+    def update_fn(control_id, control_name):
+        print "update", control_id, control_name
+        if control_name in control_hierarchy:
+            print "nothing to do"
+            return # nothing to do; no rename happened
+            
+        old_name = id_to_names[control_id]
+        control_hierarchy[control_name] = control_hierarchy[old_name]
+        del control_hierarchy[old_name]
+        populate_control_decode()
+
+    return rename_helper(vsl, post_body, "controls", id_to_names, update_fn)
 
 CLICK_HANDLER=("<script>"
                "function click_handler(fg, bg, channel_id, control_id) {"
