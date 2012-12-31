@@ -36,9 +36,49 @@ control_decode = {
     62: "phase reverse",
     3021: "high pass",
     3063: "post",
+    
+    3068: "eq enable",
+    3069: "low eq enable",
+    3071: "mid eq enable",
+    3072: "high eq enable",
+    3064: "low eq shelve",
+    3066: "mid eq hq",
+    3067: "high eq shelve",
+    3030: "low eq gain",
+    3022: "low eq frequency",
+    3024: "mid eq gain",
+    3032: "mid eq frequency",
+    3025: "high eq gain",
+    3033: "high eq frequency",
+
+    3074: "compressor auto",
+    3076: "compressor limit",
+    3034: "compressor threshold",
+    3035: "compressor ratio",
+    3036: "compressor attack",
+    3037: "compressor release",
+    3038: "compressor makeup gain",
+
+    3041: "noise gate threshold",
+    3079: "noise gate enable",
+    3080: "filter enable",
+
     }
 
-binary_controls = ["mute", "phase reverse", "post"]
+binary_controls = ["mute",
+                   "phase reverse",
+                   "post",
+                   "eq enable",
+                   "low eq enable",
+                   "mid eq enable",
+                   "high eq enable",
+                   "low eq shelve",
+                   "mid eq hq",
+                   "high eq shelve",
+                   "compressor limit",
+                   "compressor auto",
+                   "noise gate enable",
+                   ]
 for bc in binary_controls:
     assert bc in control_decode.values()
 
@@ -81,7 +121,10 @@ class VSL1818(object):
                 self.channel_id_strs[channel_id] = channel_id_str
 
             if control_id not in control_decode:
+                #print self.channel_names.get(channel_id,-1), control_id, value
                 return # ignoring unknown control_ids for now
+            #else:
+            #    print self.channel_names.get(channel_id,-1), control_decode[control_id], value
 
             self.channels[channel_id][control_id] = value
 
