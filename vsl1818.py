@@ -10,6 +10,7 @@ import traceback
 import time
 import json
 import cgi
+import urllib2
 
 HOST='localhost'
 PORT=7069
@@ -65,22 +66,32 @@ control_decode = {
 
     }
 
-binary_controls = ["mute",
-                   "phase reverse",
-                   "post",
-                   "eq enable",
-                   "low eq enable",
-                   "mid eq enable",
-                   "high eq enable",
-                   "low eq shelve",
-                   "mid eq hq",
-                   "high eq shelve",
-                   "compressor limit",
-                   "compressor auto",
-                   "noise gate enable",
-                   ]
-for bc in binary_controls:
-    assert bc in control_decode.values()
+binary_control_names = ["mute",
+                        "phase reverse",
+                        "post",
+                        "eq enable",
+                        "low eq enable",
+                        "mid eq enable",
+                        "high eq enable",
+                        "low eq shelve",
+                        "mid eq hq",
+                        "high eq shelve",
+                        "compressor limit",
+                        "compressor auto",
+                        "noise gate enable",
+                        ]
+binary_controls = []
+for bc_name in binary_control_names:
+    bc_control_id = None
+    for control_id, control_name in control_decode.iteritems():
+        if control_name == bc_name:
+            bc_control_id = control_id
+    assert bc_control_id is not None
+    binary_controls.append(bc_control_id)
+
+# make something html-safe
+def h(s, quote=False):
+    return cgi.escape(s, quote=quote)
 
 class VSL1818(object):
     def __init__(self):
@@ -90,6 +101,7 @@ class VSL1818(object):
         self.levels = None
         self.channel_names = {} # channel_id -> channel_name
         self.channel_id_strs = {} # channel_id -> channel_id_str
+        self.control_names = control_decode
 
         # channel_id -> control_id -> value
         self.channels = {}
@@ -120,11 +132,8 @@ class VSL1818(object):
                 self.channels[channel_id] = {}
                 self.channel_id_strs[channel_id] = channel_id_str
 
-            if control_id not in control_decode:
-                #print self.channel_names.get(channel_id,-1), control_id, value
+            if control_id not in self.control_names:
                 return # ignoring unknown control_ids for now
-            #else:
-            #    print self.channel_names.get(channel_id,-1), control_decode[control_id], value
 
             self.channels[channel_id][control_id] = value
 
@@ -149,11 +158,11 @@ class VSL1818(object):
             if channel_id not in self.channel_names:
                 continue # ignoring unknown channel_ids for now
             channel_name = self.channel_names[channel_id]
-            s.append("<tr><td rowspan=%s>%s" % (len(controls), channel_name))
+            s.append("<tr><td rowspan=%s>%s" % (len(controls), h(channel_name)))
             for control_id, value in sorted(controls.iteritems()):
                 if not s[-1].startswith("<tr>"):
                     s.append("<tr>")
-                s.append("<td>%s<td>%s" % (control_decode[control_id], value))
+                s.append("<td>%s<td>%s" % (h(self.control_names[control_id]), h(value)))
         s.append("</table>")
         return "".join(s)
 
@@ -173,7 +182,7 @@ class VSL1818(object):
     def send_to_host(self, channel_id, control_id, value):
         assert channel_id in self.channels
         assert control_id in self.channels[channel_id]
-        if control_decode[control_id] in binary_controls:
+        if control_id in binary_controls:
             value = int(value+0.5) # round it
         if value > 1:
             value = 1
@@ -208,7 +217,7 @@ class VSL1818(object):
 
 def begin(title):
     return ["<html>",
-            "%s<br>" % title,
+            "%s<br>" % h(title),
             "<style>body{font-size:200%}</style>"]
 
 def index(vsl):
@@ -219,42 +228,44 @@ def index(vsl):
         s.append('<br><a href="%s">%s</a><br>' % (target, text))
     return "".join(s)
 
-def list_controls(vsl):
-    s = begin("Available Controls")
-    for control_id, control_name in sorted(control_decode.iteritems()):
-        s.append('<br><a href="/control/%s">%s</a><br>' % (control_id, control_name))
+# operate_on is channel or control
+def list_helper(vsl, operate_on, ids_to_names):
+    s = begin("Available %ss" % operate_on)
+    s.append('<a href="/rename_%ss">change names</a><br>' % operate_on)
+    for key, value in sorted(ids_to_names.iteritems()):
+        s.append('<br><a href="/%s/%s">%s</a><br>' % (operate_on, key, h(value)))
     return "".join(s)
+
+def list_controls(vsl):
+    return list_helper(vsl, "control", vsl.control_names)
 
 def list_channels(vsl):
-    s = begin("Available Channels")
-    s.append('<a href="/rename_channels">change names</a><br>')
-    for channel_id in sorted(vsl.channels):
-        if channel_id not in vsl.channel_names:
-            continue # ignoring unknown channel_ids for now
-        channel_name = vsl.channel_names[channel_id]
-        s.append('<br><a href="/channel/%s">%s</a><br>' % (channel_id, channel_name))
-    return "".join(s)
+    return list_helper(vsl, "channel", vsl.channel_names)
 
-def rename_channels(vsl, post_body):
+# operate_on is either 'channels' or 'controls'
+def rename_helper(vsl, post_body, operate_on, mutable_ids_to_names):
     if post_body:
         for key_value in post_body.split('&'):
             key, value = key_value.split('=')
-            channel_id = int(key)
-            vsl.channel_names[channel_id] = value
+            mutable_ids_to_names[int(key)] = urllib2.unquote(value).replace('+', ' ')
 
-    s = begin("Rename Channels")
+    s = begin("Rename %s" % operate_on)
     a = s.append
     a('<a href="/">done</a><br>')
-    a('<form action="/rename_channels" method="post">')
+    a('<form action="/rename_%s" method="post">' % operate_on)
 
-    for channel_id in sorted(vsl.channels):
-        if channel_id not in vsl.channel_names:
-            continue # ignoring unknown channel_ids for now
+    for key in sorted(mutable_ids_to_names):
         a('<input type="text" name="%s" value="%s"><br>' % (
-                channel_id, cgi.escape(vsl.channel_names[channel_id], quote=True)))
+                key, h(mutable_ids_to_names[key], quote=True)))
     a('<input type=submit value=update>')
     a('</form>')
     return "".join(s)
+
+def rename_channels(vsl, post_body):
+    return rename_helper(vsl, post_body, "channels", vsl.channel_names)
+
+def rename_controls(vsl, post_body):
+    return rename_helper(vsl, post_body, "controls", vsl.control_names)
 
 CLICK_HANDLER=("<script>"
                "function click_handler(fg, bg, channel_id, control_id) {"
@@ -301,7 +312,7 @@ def show_sliders(title, vsl, slider_ids):
                  '<div id="slider-bg-%s-%s" class="barbg">'
                  '  <div id="slider-fg-%s-%s" class="barfg">'
                  '    &nbsp;</div></div>'
-                 % (slider_name, channel_id, control_id, channel_id, control_id))
+                 % (h(slider_name), channel_id, control_id, channel_id, control_id))
     s.append("</dl>")
 
     s.append(XML_HTTP_REQUEST)
@@ -345,7 +356,7 @@ def show_sliders(title, vsl, slider_ids):
 def show_control(request, vsl):
     (control_raw,) = request
     control_id = int(control_raw)
-    control_name = control_decode[control_id]
+    control_name = vsl.control_names[control_id]
 
     sliders = [(vsl.channel_names[channel_id], channel_id, control_id)
                for channel_id, controls in sorted(vsl.channels.items())
@@ -358,7 +369,7 @@ def show_channel(request, vsl):
     channel_name = vsl.channel_names[channel_id]
 
     controls = vsl.channels[channel_id]
-    sliders = [(control_decode[control_id], channel_id, control_id)
+    sliders = [(vsl.control_names[control_id], channel_id, control_id)
                for control_id in sorted(controls)]
     return show_sliders("Channel %s" % channel_name, vsl, sliders)
 
@@ -389,6 +400,8 @@ def handle_request(request, query_string, post_body, vsl):
         return index(vsl)
     if request == ['rename_channels']:
         return rename_channels(vsl, post_body)
+    if request == ['rename_controls']:
+        return rename_controls(vsl, post_body)
     if request == ['channels']:
         return list_channels(vsl)
     if request[0] == "channel":
@@ -412,6 +425,7 @@ class MockVSL():
         self.killed = False
         self.levels = None
         self.channel_names = {1: "main", 2: "aux"}
+        self.control_names = control_decode
 
         # channel_id -> control_id -> value
         self.channels = {1:{}, 2:{}}
