@@ -21,73 +21,97 @@ def parsestr(s, n=None):
         assert len(s) == n
     return s[:s.find('\x00')]
 
-# control_id -> control_name
-control_decode = {
-    3000: "master",
-    1: "master pan",
-    3005: "aux 3-4",
-    16: "pan 3-4",
-    3007: "aux 5-6",
-    17: "pan 5-6",
-    3009: "aux 7-8",
-    18: "pan 7-8",
-    3013: "A",
-    3014: "B",
-    3052: "mute",
-    62: "phase reverse",
-    3021: "high pass",
-    3063: "post",
-    
-    3068: "eq enable",
-    3069: "low eq enable",
-    3071: "mid eq enable",
-    3072: "high eq enable",
-    3064: "low eq shelve",
-    3066: "mid eq hq",
-    3067: "high eq shelve",
-    3030: "low eq gain",
-    3022: "low eq frequency",
-    3024: "mid eq gain",
-    3032: "mid eq frequency",
-    3025: "high eq gain",
-    3033: "high eq frequency",
-
-    3074: "compressor auto",
-    3076: "compressor limit",
-    3034: "compressor threshold",
-    3035: "compressor ratio",
-    3036: "compressor attack",
-    3037: "compressor release",
-    3038: "compressor makeup gain",
-
-    3041: "noise gate threshold",
-    3079: "noise gate enable",
-    3080: "filter enable",
-
+control_hierarchy = {
+    "master": {
+        "gain": 3000,
+        "pan": 1,
+        },
+    "aux 3-4": {
+        "gain": 3005,
+        "pan": 16,
+        },
+    "aux 5-6": {
+        "gain": 3007,
+        "pan": 17,
+        },
+    "aux 7-8": {
+        "gain": 3009,
+        "pan": 18,
+        },
+    "A": 3013,
+    "B": 3014,
+    "mute": 3052,
+    "filter": {
+        "enable": 3080,
+        "phase reverse": 62,
+        "high pass": 3021,
+        },
+    "post": 3063,
+    "eq": {
+        "enable": 3068,
+        "low": {
+            "enable": 3069,
+            "shelve": 3064,
+            "gain": 3030,
+            "freq": 3022,
+            },
+        "mid": {
+            "enable": 3071,
+            "hq": 3066,
+            "gain": 3024,
+            "freq": 3032,
+            },
+        "high": {
+            "enable": 3072,
+            "shelve": 3067,
+            "gain": 3025,
+            "freq": 3033,
+            },
+        },
+    "compressor": {
+        "auto": 3074,
+        "limit": 3076,
+        "threshold": 3034,
+        "ratio": 3035,
+        "attack": 3036,
+        "release": 3037,
+        "makeup gain": 3038,
+        },
+    "noise gate": {
+        "enable": 3079,
+        "threshold": 3041,
+        },
     }
 
-binary_control_names = ["mute",
-                        "phase reverse",
-                        "post",
-                        "eq enable",
-                        "low eq enable",
-                        "mid eq enable",
-                        "high eq enable",
-                        "low eq shelve",
-                        "mid eq hq",
-                        "high eq shelve",
-                        "compressor limit",
-                        "compressor auto",
-                        "noise gate enable",
-                        ]
-binary_controls = []
-for bc_name in binary_control_names:
-    bc_control_id = None
-    for control_id, control_name in control_decode.iteritems():
-        if control_name == bc_name:
-            bc_control_id = control_id
-    assert bc_control_id is not None
-    binary_controls.append(bc_control_id)
+# control_id -> control_name
+control_decode = {}
+def populate_control_decode(hierarchy, path=None):
+    if path is None:
+        path = []
+        control_decode.clear()
+
+    for key, value in hierarchy.iteritems():
+        child_path = path + [key]
+        if type(value) == type({}):
+            populate_control_decode(value, child_path)
+        else:
+            control_decode[value] = " ".join(child_path)
+populate_control_decode(control_hierarchy)
+
+binary_controls = [control_hierarchy["mute"],
+                   control_hierarchy["post"],
+                   control_hierarchy["filter"]["enable"],
+                   control_hierarchy["filter"]["phase reverse"],
+                   control_hierarchy["eq"]["enable"],
+                   control_hierarchy["eq"]["low"]["enable"],
+                   control_hierarchy["eq"]["mid"]["enable"],
+                   control_hierarchy["eq"]["high"]["enable"],
+                   control_hierarchy["eq"]["low"]["shelve"],
+                   control_hierarchy["eq"]["mid"]["hq"],
+                   control_hierarchy["eq"]["high"]["shelve"],
+                   control_hierarchy["compressor"]["limit"],
+                   control_hierarchy["compressor"]["auto"],
+                   control_hierarchy["noise gate"]["enable"]]
 
 # make something html-safe
 def h(s, quote=False):
