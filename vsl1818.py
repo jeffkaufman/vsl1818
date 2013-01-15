@@ -38,6 +38,30 @@ control_hierarchy = {
         "gain": 3009,
         "pan": 18,
         },
+    "out1": {
+        "gain": 100001,
+        },
+    "out2": {
+        "gain": 100002,
+        },
+    "out3": {
+        "gain": 100003,
+        },
+    "out4": {
+        "gain": 100004,
+        },
+    "out5": {
+        "gain": 100005,
+        },
+    "out6": {
+        "gain": 100006,
+        },
+    "out7": {
+        "gain": 100007,
+        },
+    "out8": {
+        "gain": 100008,
+        },
     "A": 3013,
     "B": 3014,
     "mute": 3052,
@@ -83,6 +107,17 @@ control_hierarchy = {
         },
     }
 
+psuedo_unstereo_controls = {
+    control_hierarchy["out1"]["gain"]: ['L', control_hierarchy["master"]["gain"], control_hierarchy["master"]["pan"]],
+    control_hierarchy["out2"]["gain"]: ['R', control_hierarchy["master"]["gain"], control_hierarchy["master"]["pan"]],
+    control_hierarchy["out3"]["gain"]: ['L', control_hierarchy["aux 3-4"]["gain"], control_hierarchy["aux 3-4"]["pan"]],
+    control_hierarchy["out4"]["gain"]: ['R', control_hierarchy["aux 3-4"]["gain"], control_hierarchy["aux 3-4"]["pan"]],
+    control_hierarchy["out5"]["gain"]: ['L', control_hierarchy["aux 5-6"]["gain"], control_hierarchy["aux 5-6"]["pan"]],
+    control_hierarchy["out6"]["gain"]: ['R', control_hierarchy["aux 5-6"]["gain"], control_hierarchy["aux 5-6"]["pan"]],
+    control_hierarchy["out7"]["gain"]: ['L', control_hierarchy["aux 7-8"]["gain"], control_hierarchy["aux 7-8"]["pan"]],
+    control_hierarchy["out8"]["gain"]: ['R', control_hierarchy["aux 7-8"]["gain"], control_hierarchy["aux 7-8"]["pan"]],
+}
+
 # control_id -> control_name
 control_decode = {}
 def populate_control_decode(hierarchy=None, path=None):
@@ -118,7 +153,9 @@ renameable_controls = [control_hierarchy["master"]["gain"],
                        control_hierarchy["aux 3-4"]["gain"],
                        control_hierarchy["aux 5-6"]["gain"],
                        control_hierarchy["aux 7-8"]["gain"]]
-
+for psuedo_unstereo_control_id in psuedo_unstereo_controls:
+    renameable_controls.append(psuedo_unstereo_control_id)
+    
 
 # make something html-safe
 def h(s, quote=False):
@@ -167,6 +204,7 @@ class VSL1818(object):
                 return # ignoring unknown control_ids for now
 
             self.channels[channel_id][control_id] = value
+            update_psuedo_controls(self, channel_id, control_id)
 
         else:
             raise Exception("unknown category %s" % category)
@@ -179,23 +217,6 @@ class VSL1818(object):
             assert signature == 0xaa550011
             v = self.read(l)
             self.update(v[:12], v[12:])
-
-    def dumpstate(self):
-        if not self.loaded:
-            return "<p>loading...</p>"
-
-        s = ["<table border=1>"]
-        for channel_id, controls in sorted(self.channels.iteritems()):
-            if channel_id not in self.channel_names:
-                continue # ignoring unknown channel_ids for now
-            channel_name = self.channel_names[channel_id]
-            s.append("<tr><td rowspan=%s>%s" % (len(controls), h(channel_name)))
-            for control_id, value in sorted(controls.iteritems()):
-                if not s[-1].startswith("<tr>"):
-                    s.append("<tr>")
-                s.append("<td>%s<td>%s" % (h(self.control_names[control_id]), h(value)))
-        s.append("</table>")
-        return "".join(s)
 
     def read(self, n):
         s = ""
@@ -246,23 +267,43 @@ class VSL1818(object):
                                  'C8:BC:C8:1B:9F:0A',
                                  'AB1818-VSL'))
 
-def begin(title):
+def update_psuedo_controls(vsl, channel_id, control_id):
+    for psuedo_control_id in psuedo_unstereo_controls:
+        direction, control_id_gain, control_id_pan = (
+            psuedo_unstereo_controls[psuedo_control_id])
+
+        if control_id in (control_id_gain, control_id_pan):
+            gain = vsl.channels[channel_id].get(control_id_gain, 0)
+            pan = vsl.channels[channel_id].get(control_id_pan, .5)
+            left, right = to_left_right(gain, pan)
+                
+            if direction == 'L':
+                value = left
+            else:
+                value = right
+                
+            vsl.channels[channel_id][psuedo_control_id] = value
+
+            # keep going: always two to update
+
+def begin(title, back):
     return ["<html>",
-            "%s<br>" % h(title),
-            "<style>body{font-size:200%}</style>"]
+            h(title),
+            ('<br><a href="%s">back</a>' % back) if back else "",
+            "<br><style>body{font-size:200%}</style>"]
 
 def index(vsl):
-    s = begin("VSL 1818")
-    for text, target in [["Dump State", "/dump"],
-                         ["List Controls", "/controls"],
+    s = begin("VSL 1818", back=None)
+    for text, target in [["List Controls", "/controls"],
                          ["List Channels", "/channels"]]:
         s.append('<br><a href="%s">%s</a><br>' % (target, text))
     return "".join(s)
 
 # operate_on is channel or control
 def list_helper(vsl, operate_on, id_to_names):
-    s = begin("Available %ss" % operate_on)
+    s = begin("Available %ss" % operate_on, "/")
     s.append('<a href="/rename_%ss">change names</a><br>' % operate_on)
+
     for key, value in sorted(id_to_names.iteritems()):
         s.append('<br><a href="/%s/%s">%s</a><br>' % (operate_on, key, h(value)))
     return "".join(s)
@@ -282,9 +323,8 @@ def rename_helper(vsl, post_body, operate_on, id_to_names, update_fn):
             update_fn(key, value)
             id_to_names[key] = value
 
-    s = begin("Rename %s" % operate_on)
+    s = begin("Rename %s" % operate_on, "/")
     a = s.append
-    a('<a href="/">done</a><br>')
     a('<form action="/rename_%s" method="post">' % operate_on)
 
     for key in sorted(id_to_names):
@@ -313,11 +353,9 @@ def rename_controls(vsl, post_body):
     assert len(renameable_controls) == len(id_to_names)
 
     def update_fn(control_id, control_name):
-        print "update", control_id, control_name
         if control_name in control_hierarchy:
-            print "nothing to do"
             return # nothing to do; no rename happened
-            
+
         old_name = id_to_names[control_id]
         control_hierarchy[control_name] = control_hierarchy[old_name]
         del control_hierarchy[old_name]
@@ -356,8 +394,8 @@ XML_HTTP_REQUEST = (
     "}"
     "</script>")
 
-def show_sliders(title, vsl, slider_ids):
-    s = begin(title)
+def show_sliders(title, vsl, slider_ids, back):
+    s = begin(title, back)
 
     s.append("<style>"
              "body{margin:0;padding:0}"
@@ -419,7 +457,7 @@ def show_control(request, vsl):
     sliders = [(vsl.channel_names[channel_id], channel_id, control_id)
                for channel_id, controls in sorted(vsl.channels.items())
                if control_id in controls]
-    return show_sliders("Control %s" % control_name, vsl, sliders)
+    return show_sliders("Control %s" % control_name, vsl, sliders, "/controls")
 
 def show_channel(request, vsl):
     (channel_id_raw,) = request
@@ -429,7 +467,7 @@ def show_channel(request, vsl):
     controls = vsl.channels[channel_id]
     sliders = [(vsl.control_names[control_id], channel_id, control_id)
                for control_id in sorted(controls)]
-    return show_sliders("Channel %s" % channel_name, vsl, sliders)
+    return show_sliders("Channel %s" % channel_name, vsl, sliders, "/channels")
 
 def json_sliders(query_string, vsl):
     assert query_string.startswith("q=")
@@ -437,10 +475,54 @@ def json_sliders(query_string, vsl):
 
     s = []
     for slider in request.split(","):
-        channel_id_s, control_id_s = slider.split("-")
+        channel_id_s, control_id_s = slider.split("-", 1)
         channel_id, control_id = int(channel_id_s), int(control_id_s)
         s.append((channel_id, control_id, '%.2f%%' % (vsl.channels[channel_id][control_id]*100)))
     return json.dumps(s)
+
+translated_full_sweep = []
+with open("translated_full_sweep.csv") as inf:
+    for line in inf:
+        pan, gain, left, right = line.split(",")
+
+        if pan == "pan":
+            continue
+
+        pan, gain = int(pan) / 100.0, int(gain) / 100.0
+        left, right = float(left), float(right)
+
+        translated_full_sweep.append((pan, gain, left, right))
+
+def sqdiff(x,y):
+    return (x-y)*(x-y)
+
+# These lookups are brute force nearest-neighbor using data in translated_full_sweep.csv.
+# They're embarassingly slow (20ms on my machine) because they consider all 10k points.
+# While there are ways to speed this up (quadtree, dropping less informative points),
+# these functions are only called as often as there are updates to the underlying auxes,
+# which is rarely.
+
+def to_left_right(gain_real, pan_real):
+    closest_index = None
+    closest_distance = None
+    for index, (pan, gain, left, right) in enumerate(translated_full_sweep):
+        distance = sqdiff(gain_real, gain) + sqdiff(pan_real, pan)
+        if closest_distance is None or distance < closest_distance:
+            closest_distance = distance
+            closest_index = index
+    _, _, closest_left, closest_right = translated_full_sweep[closest_index]
+    return closest_left, closest_right
+
+def to_gain_pan(left_real, right_real):
+    closest_index = None
+    closest_distance = None
+    for index, (pan, gain, left, right) in enumerate(translated_full_sweep):
+        distance = sqdiff(left_real, left) + sqdiff(right_real, right)
+        if closest_distance is None or distance < closest_distance:
+            closest_distance = distance
+            closest_index = index
+    closest_pan, closest_gain, _, _, = translated_full_sweep[closest_index]
+    return closest_gain, closest_pan
 
 def process_update(post_body, vsl):
     channel_id_s, control_id_s, value_s = post_body.split()
@@ -448,7 +530,26 @@ def process_update(post_body, vsl):
     control_id = int(control_id_s)
     value = float(value_s)
 
-    vsl.send_to_host(channel_id, control_id, value)
+    if control_id in psuedo_unstereo_controls:
+        direction, control_id_gain, control_id_pan = psuedo_unstereo_controls[control_id]
+        old_gain = vsl.channels[channel_id][control_id_gain]
+        old_pan = vsl.channels[channel_id][control_id_pan]
+
+        current_left, current_right = to_left_right(old_gain, old_pan)
+
+        if direction == 'L':
+            current_left = value
+        elif direction == 'R':
+            current_right = value
+        else:
+            assert False
+
+        new_gain, new_pan = to_gain_pan(current_left, current_right)
+        vsl.send_to_host(channel_id, control_id_gain, new_gain)
+        vsl.send_to_host(channel_id, control_id_pan, new_pan)
+    else:
+        assert control_id >= 0
+        vsl.send_to_host(channel_id, control_id, value)
 
 def handle_request(request, query_string, post_body, vsl):
     assert not request[0]
@@ -473,8 +574,6 @@ def handle_request(request, query_string, post_body, vsl):
         return ""
     if request == ["sliders"]:
         return "application/json", json_sliders(query_string, vsl)
-    if request == ['dump']:
-        return vsl.dumpstate()
     raise Exception("Unknown Request Path: '%s'" % request)
 
 class MockVSL():
@@ -482,7 +581,7 @@ class MockVSL():
         self.loaded = False
         self.killed = False
         self.levels = None
-        self.channel_names = {1: "main", 2: "aux"}
+        self.channel_names = {1: "in 1", 2: "in 2"}
         self.control_names = control_decode
 
         # channel_id -> control_id -> value
@@ -491,32 +590,30 @@ class MockVSL():
 
     def send_to_host(self, channel_id, control_id, value):
         self.channels[channel_id][control_id] = value
+        update_psuedo_controls(self, channel_id, control_id)
 
     def update_always(self):
         i = 0
 
-        self.channels[2][3000] = 0.1
-        self.channels[2][3005] = .2
-        self.channels[2][3007] = .3
-        self.channels[2][3009] = .4
-        self.channels[2][1] = .5
+        self.send_to_host(2, 3000, .1)
+        self.send_to_host(2, 3005, .2)
+        self.send_to_host(2, 3007, .3)
+        self.send_to_host(2, 3009, .4)
+        self.send_to_host(2, 1, .5)
 
         while not self.killed:
             c = float(i % 256)
             q = c/256
 
             self.levels = (c, c, 256-c, 256-c)
-            self.channels[1][3000] = .3*q
-            self.channels[1][3005] = .1*q
-            self.channels[1][3007] = .5*q
-            self.channels[1][3009] = .9*q
-            self.channels[1][1] = 1.0*q
+            self.send_to_host(1, 3000, .3*q)
+            self.send_to_host(1, 3005, .1*q)
+            self.send_to_host(1, 3007, .5*q)
+            self.send_to_host(1, 3009, .9*q)
+            self.send_to_host(1, 1, 1.0*q)
 
             time.sleep(.1)
             i += 1
-
-    def dumpstate(self):
-        return "dumpstate"
 
 def start(args):
     if len(args) == 1 and args[0] == "mock":

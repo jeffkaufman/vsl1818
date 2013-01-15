@@ -13,6 +13,13 @@ and the high-pass filter for every channel.
 You can name the channels, but the names aren't sent to VSL.  Instead
 the names are just used for all the clients connected to this program.
 
+It supports treating the four stereo outputs as eight mono outputs,
+which mostly works.  It has to convert between showing you separate
+values for the left and right channels and telling VSL an amount of
+gain and pan, and not all combinations are possible.  It does pretty
+well, but sometimes you'll see a small change in, say, aux3 when you
+change aux4.
+
 http://www.youtube.com/watch?v=ciWhHaIoN0A
 
 Details and background: http://www.jefftk.com/news/2012-12-21
