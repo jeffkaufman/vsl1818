@@ -155,7 +155,7 @@ renameable_controls = [control_hierarchy["master"]["gain"],
                        control_hierarchy["aux 7-8"]["gain"]]
 for psuedo_unstereo_control_id in psuedo_unstereo_controls:
     renameable_controls.append(psuedo_unstereo_control_id)
-    
+
 
 # make something html-safe
 def h(s, quote=False):
@@ -276,12 +276,12 @@ def update_psuedo_controls(vsl, channel_id, control_id):
             gain = vsl.channels[channel_id].get(control_id_gain, 0)
             pan = vsl.channels[channel_id].get(control_id_pan, .5)
             left, right = to_left_right(gain, pan)
-                
+
             if direction == 'L':
                 value = left
             else:
                 value = right
-                
+
             vsl.channels[channel_id][psuedo_control_id] = value
 
             # keep going: always two to update
@@ -364,13 +364,54 @@ def rename_controls(vsl, post_body):
     return rename_helper(vsl, post_body, "controls", id_to_names, update_fn)
 
 CLICK_HANDLER=("<script>"
-               "function click_handler(fg, bg, channel_id, control_id) {"
+               "var may_send=true;"
+               "setInterval(function() {"
+               "  may_send=true;"
+               "}, 200); /* send no more than 5x per second */"
+               ""
+               "var active_slider='';"
+               "function move_handler(fg, bg, channel_id, control_id) {"
                "  return function(e) {"
-               "     var value = e.pageX/bg.offsetWidth;"
-               "     var update_info = channel_id + ' ' + control_id + ' ' + value;"
-               "     loadAjax('POST', '/update', update_info, function() { });"
+               "    if (active_slider == channel_id + '-' + control_id) {"
+               "      var pageX;"
+               "      if (e.touches) {"
+               "        pageX = e.touches[0].pageX;"
+               "      } else {"
+               "        pageX = e.pageX;"
+               "      }"
+               "      var value = pageX/bg.offsetWidth;"
+               "      var update_info = channel_id + ' ' + control_id + ' ' + value;"
+               "      if (may_send) {"
+               "        may_send = false;"
+               "        loadAjax('POST', '/update', update_info, function() { });"
+               "        update_sliders(active_slider);"
+               "      }"
+               "    }"
+               "    else {"
+               "      active_slider = '';"
+               "    }"
                "  }"
                "}"
+               "function down_handler(fg, bg, channel_id, control_id) {"
+               "  return function(e) {"
+               "    active_slider=channel_id + '-' + control_id;"
+               "  }"
+               "}"
+               "function up_handler(fg, bg, channel_id, control_id) {"
+               "  return function(e) {"
+               "    may_send=true;"
+               "    move_handler(fg, bg, channel_id, control_id)(e);"
+               "    active_slider='';"
+               "  }"
+               "}"
+               "document.body.addEventListener('touchmove', function(e) {"
+               "  if (active_slider != '') {"
+               "    e.preventDefault();"
+               "  }"
+               "}, false);"
+               "document.body.addEventListener('touchend', function(e) {"
+               "  active_slider = '';"
+               "}, false);"
                "</script>")
 
 XML_HTTP_REQUEST = (
@@ -423,15 +464,21 @@ def show_sliders(title, vsl, slider_ids, back):
              "                                          + '-' + control_id);"
              "  var fg = document.getElementById('slider-fg-' + channel_id"
              "                                          + '-' + control_id);"
-             "  bg.onclick = click_handler(fg, bg, channel_id, control_id);"
+             "  bg.onmousedown = down_handler(fg, bg, channel_id, control_id);"
+             "  bg.onmouseup = up_handler(fg, bg, channel_id, control_id);"
+             "  bg.onmousemove = move_handler(fg, bg, channel_id, control_id);"
+             "  bg.addEventListener('touchstart', down_handler(fg, bg, channel_id, control_id));"
+             "  bg.addEventListener('touchend', up_handler(fg, bg, channel_id, control_id));"
+             "  bg.addEventListener('touchcancel', function() { active_slider=''; });"
+             "  bg.addEventListener('touchmove', move_handler(fg, bg, channel_id, control_id));"
              "}"
              "</script>" %
              json.dumps([(channel_id, control_id)
                          for slider_name, channel_id, control_id in slider_ids]))
 
     s.append("<script>"
-             "setInterval(function() {"
-             "  loadAjax('GET', '/sliders?q=%s', '', function(response) {"
+             "function update_sliders(which_sliders) {"
+             "  loadAjax('GET', '/sliders?q=' + which_sliders, '', function(response) {"
              "    r = JSON.parse(response);"
              "    var i;"
              "    for (i = 0 ; i < r.length ; i++) {"
@@ -443,7 +490,8 @@ def show_sliders(title, vsl, slider_ids, back):
              "      fg.style.width = width_percent;"
              "    }"
              "  });"
-             "}, 100);"
+             "}"
+             "setInterval(function() { update_sliders('%s') }, 1000);"
              "</script>" % ",".join("%s-%s" % (channel_id, control_id)
                                     for slider_name, channel_id, control_id in slider_ids))
 
@@ -581,12 +629,15 @@ class MockVSL():
         self.loaded = False
         self.killed = False
         self.levels = None
-        self.channel_names = {1: "in 1", 2: "in 2"}
         self.control_names = control_decode
 
-        # channel_id -> control_id -> value
-        self.channels = {1:{}, 2:{}}
-        self.channel_id_strs = {1:"in1,0,2", 2:"in2,0,2"}
+        self.channel_names = {}
+        self.channels = {}
+        self.channel_id_strs = {}
+        for i in range(20):
+            self.channel_names[i] = "in %s" % i
+            self.channels[i] = {}
+            self.channel_id_strs[i] = "in%s,0,2" % i
 
     def send_to_host(self, channel_id, control_id, value):
         self.channels[channel_id][control_id] = value
@@ -594,6 +645,9 @@ class MockVSL():
 
     def update_always(self):
         i = 0
+
+        for i in range(20):
+            self.send_to_host(i, 3000, .22)
 
         self.send_to_host(2, 3000, .1)
         self.send_to_host(2, 3005, .2)
