@@ -364,11 +364,17 @@ def rename_controls(vsl, post_body):
     return rename_helper(vsl, post_body, "controls", id_to_names, update_fn)
 
 CLICK_HANDLER=("<script>"
-               "function click_handler(fg, bg, channel_id, control_id) {"
+               "var may_send=true;"
+               "setInterval(function() {"
+               "  may_send=true;"
+               "}, 200); /* send no more than 5x per second */"
+               "function click_handler(s, channel_id, control_id) {"
                "  return function(e) {"
-               "     var value = e.pageX/bg.offsetWidth;"
-               "     var update_info = channel_id + ' ' + control_id + ' ' + value;"
-               "     loadAjax('POST', '/update', update_info, function() { });"
+               "    if (may_send) {"
+               "      may_send=false;"
+               "      var update_info = channel_id + ' ' + control_id + ' ' + s.valueAsNumber/100;"
+               "      loadAjax('POST', '/update', update_info, function() { });"
+               "    }"
                "  }"
                "}"
                "</script>")
@@ -397,18 +403,39 @@ XML_HTTP_REQUEST = (
 def show_sliders(title, vsl, slider_ids, back):
     s = begin(title, back)
 
-    s.append("<style>"
-             "body{margin:0;padding:0}"
-             ".barfg{background-color:black;margin:0;padding:0}"
-             ".barbg{background-color:#BBB;margin:0;padding:0}"
+    s.append("<meta name=viewport content='width=device-width, user-scalable=no'>"
+             "<style>"
+             "body {"
+             "  margin:0;"
+             "  padding:0"
+             "  -moz-user-select: none;"
+             "  -khtml-user-select: none;"
+             "  -webkit-user-select: none;"
+             "  user-select: none;"
+             "}"
+             "input[type='range'] {"
+             "  margin:0;"
+             "  padding: 0;"
+             "  -webkit-appearance: none;"
+             "  background-color: lightgray;"
+             "  width:100%;"
+             "  -moz-user-select: none;"
+             "  -khtml-user-select: none;"
+             "  -webkit-user-select: none;"
+             "  user-select: none;"
+             "}"
+             "input[type='range']::-webkit-slider-thumb {"
+             "  -webkit-appearance: none;"
+             "  background-color: #444;"
+             "  width: 10em;"
+             "  height: 5em;"
+             "}"
              "</style>")
 
     for slider_name, channel_id, control_id in slider_ids:
         s.append('<br>%s<br>'
-                 '<div id="slider-bg-%s-%s" class="barbg">'
-                 '  <div id="slider-fg-%s-%s" class="barfg">'
-                 '    &nbsp;</div></div>'
-                 % (h(slider_name), channel_id, control_id, channel_id, control_id))
+                 '<input type="range" id="slider-%s-%s" class="slider">'
+                 % (h(slider_name), channel_id, control_id))
     s.append("</dl>")
 
     s.append(XML_HTTP_REQUEST)
@@ -419,11 +446,9 @@ def show_sliders(title, vsl, slider_ids, back):
              "for (i = 0 ; i < sliders.length ; i++) {"
              "  var channel_id = sliders[i][0];"
              "  var control_id = sliders[i][1];"
-             "  var bg = document.getElementById('slider-bg-' + channel_id"
-             "                                          + '-' + control_id);"
-             "  var fg = document.getElementById('slider-fg-' + channel_id"
-             "                                          + '-' + control_id);"
-             "  bg.onclick = click_handler(fg, bg, channel_id, control_id);"
+             "  var s = document.getElementById('slider-' + channel_id"
+             "                                      + '-' + control_id);"
+             "  s.onchange = click_handler(s, channel_id, control_id);"
              "}"
              "</script>" %
              json.dumps([(channel_id, control_id)
@@ -438,12 +463,12 @@ def show_sliders(title, vsl, slider_ids, back):
              "      var channel_id = r[i][0];"
              "      var control_id = r[i][1];"
              "      var width_percent = r[i][2];"
-             "      var fg = document.getElementById('slider-fg-' + channel_id"
-             "                                              + '-' + control_id);"
-             "      fg.style.width = width_percent;"
+             "      var s = document.getElementById('slider-' + channel_id"
+             "                                          + '-' + control_id);"
+             "      s.value = width_percent;"
              "    }"
              "  });"
-             "}, 100);"
+             "}, 1000);"
              "</script>" % ",".join("%s-%s" % (channel_id, control_id)
                                     for slider_name, channel_id, control_id in slider_ids))
 
@@ -477,7 +502,7 @@ def json_sliders(query_string, vsl):
     for slider in request.split(","):
         channel_id_s, control_id_s = slider.split("-", 1)
         channel_id, control_id = int(channel_id_s), int(control_id_s)
-        s.append((channel_id, control_id, '%.2f%%' % (vsl.channels[channel_id][control_id]*100)))
+        s.append((channel_id, control_id, '%.2f' % (vsl.channels[channel_id][control_id]*100)))
     return json.dumps(s)
 
 translated_full_sweep = []
