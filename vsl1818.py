@@ -364,54 +364,16 @@ def rename_controls(vsl, post_body):
     return rename_helper(vsl, post_body, "controls", id_to_names, update_fn)
 
 CLICK_HANDLER=("<script>"
-               "var may_send=true;"
-               "setInterval(function() {"
-               "  may_send=true;"
-               "}, 200); /* send no more than 5x per second */"
-               ""
-               "var active_slider='';"
-               "function move_handler(fg, bg, channel_id, control_id) {"
-               "  return function(e) {"
-               "    if (active_slider == channel_id + '-' + control_id) {"
-               "      var pageX;"
-               "      if (e.touches) {"
-               "        pageX = e.touches[0].pageX;"
-               "      } else {"
-               "        pageX = e.pageX;"
-               "      }"
-               "      var value = pageX/bg.offsetWidth;"
-               "      var update_info = channel_id + ' ' + control_id + ' ' + value;"
-               "      if (may_send) {"
-               "        may_send = false;"
-               "        loadAjax('POST', '/update', update_info, function() { });"
-               "        update_sliders(active_slider);"
-               "      }"
-               "    }"
-               "    else {"
-               "      active_slider = '';"
-               "    }"
-               "  }"
+               "function handle_button_press(channel_id, control_id, sign) {"
+               "  var fg = document.getElementById('slider-fg-' + channel_id"
+               "                                          + '-' + control_id);"
+               "  var value = parseFloat(fg.style.width) / 100.0;"
+               "  var new_value = value + (sign * 0.02);"
+               "  var update_info = channel_id + ' ' + control_id + ' ' + new_value;"
+               "  loadAjax('POST', '/update', update_info, function() {"
+               "    update_sliders(channel_id + '-' + control_id);"
+               "  });"
                "}"
-               "function down_handler(fg, bg, channel_id, control_id) {"
-               "  return function(e) {"
-               "    active_slider=channel_id + '-' + control_id;"
-               "  }"
-               "}"
-               "function up_handler(fg, bg, channel_id, control_id) {"
-               "  return function(e) {"
-               "    may_send=true;"
-               "    move_handler(fg, bg, channel_id, control_id)(e);"
-               "    active_slider='';"
-               "  }"
-               "}"
-               "document.body.addEventListener('touchmove', function(e) {"
-               "  if (active_slider != '') {"
-               "    e.preventDefault();"
-               "  }"
-               "}, false);"
-               "document.body.addEventListener('touchend', function(e) {"
-               "  active_slider = '';"
-               "}, false);"
                "</script>")
 
 XML_HTTP_REQUEST = (
@@ -440,16 +402,25 @@ def show_sliders(title, vsl, slider_ids, back):
 
     s.append("<style>"
              "body{margin:0;padding:0}"
+             "button{width:49%}"
              ".barfg{background-color:black;margin:0;padding:0}"
              ".barbg{background-color:#BBB;margin:0;padding:0}"
              "</style>")
 
     for slider_name, channel_id, control_id in slider_ids:
         s.append('<br>%s<br>'
+                 '<button id="down-%s-%s" onclick="handle_button_press(%s,%s,-1)">-</button>'
+                 '<button id="up-%s-%s" onclick="handle_button_press(%s,%s,+1)">+</button>'
                  '<div id="slider-bg-%s-%s" class="barbg">'
                  '  <div id="slider-fg-%s-%s" class="barfg">'
                  '    &nbsp;</div></div>'
-                 % (h(slider_name), channel_id, control_id, channel_id, control_id))
+                 % (h(slider_name),
+                    channel_id, control_id,
+                    channel_id, control_id,
+                    channel_id, control_id,
+                    channel_id, control_id,
+                    channel_id, control_id,
+                    channel_id, control_id))
     s.append("</dl>")
 
     s.append(XML_HTTP_REQUEST)
@@ -460,17 +431,6 @@ def show_sliders(title, vsl, slider_ids, back):
              "for (i = 0 ; i < sliders.length ; i++) {"
              "  var channel_id = sliders[i][0];"
              "  var control_id = sliders[i][1];"
-             "  var bg = document.getElementById('slider-bg-' + channel_id"
-             "                                          + '-' + control_id);"
-             "  var fg = document.getElementById('slider-fg-' + channel_id"
-             "                                          + '-' + control_id);"
-             "  bg.onmousedown = down_handler(fg, bg, channel_id, control_id);"
-             "  bg.onmouseup = up_handler(fg, bg, channel_id, control_id);"
-             "  bg.onmousemove = move_handler(fg, bg, channel_id, control_id);"
-             "  bg.addEventListener('touchstart', down_handler(fg, bg, channel_id, control_id));"
-             "  bg.addEventListener('touchend', up_handler(fg, bg, channel_id, control_id));"
-             "  bg.addEventListener('touchcancel', function() { active_slider=''; });"
-             "  bg.addEventListener('touchmove', move_handler(fg, bg, channel_id, control_id));"
              "}"
              "</script>" %
              json.dumps([(channel_id, control_id)
