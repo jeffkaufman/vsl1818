@@ -370,9 +370,7 @@ CLICK_HANDLER=("<script>"
                "  var value = parseFloat(fg.style.width) / 100.0;"
                "  var new_value = value + (sign * 0.02);"
                "  var update_info = channel_id + ' ' + control_id + ' ' + new_value;"
-               "  loadAjax('POST', '/update', update_info, function() {"
-               "    update_sliders(channel_id + '-' + control_id);"
-               "  });"
+               "  loadAjax('POST', '/update', update_info, function() {});"
                "}"
                "</script>")
 
@@ -402,15 +400,17 @@ def show_sliders(title, vsl, slider_ids, back):
 
     s.append("<style>"
              "body{margin:0;padding:0}"
-             "button{width:49%}"
+             "button{width:24%}"
              ".barfg{background-color:black;margin:0;padding:0}"
              ".barbg{background-color:#BBB;margin:0;padding:0}"
              "</style>")
 
     for slider_name, channel_id, control_id in slider_ids:
         s.append('<br>%s<br>'
-                 '<button id="down-%s-%s" onclick="handle_button_press(%s,%s,-1)">-</button>'
-                 '<button id="up-%s-%s" onclick="handle_button_press(%s,%s,+1)">+</button>'
+                 '<button onclick="handle_button_press(%s,%s,-5)">--</button>'
+                 '<button onclick="handle_button_press(%s,%s,-1)">-</button>'
+                 '<button onclick="handle_button_press(%s,%s,+1)">+</button>'
+                 '<button onclick="handle_button_press(%s,%s,+5)">++</button>'
                  '<div id="slider-bg-%s-%s" class="barbg">'
                  '  <div id="slider-fg-%s-%s" class="barfg">'
                  '    &nbsp;</div></div>'
@@ -638,6 +638,7 @@ def start(args):
         vsl = VSL1818()
         vsl.connect()
 
+    print "Starting update thread..."
     update_thread = threading.Thread(target=vsl.update_always)
     update_thread.start()
 
