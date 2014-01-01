@@ -287,7 +287,7 @@ def update_psuedo_controls(vsl, channel_id, control_id):
             # keep going: always two to update
 
 def begin(title, back):
-    return ["<html>",
+    return ["<html><meta name='viewport' content='initial-scale=1.0, user-scalable=no' />",
             h(title),
             ('<br><a href="%s">back</a>' % back) if back else "",
             "<br><style>body{font-size:200%}</style>"]
