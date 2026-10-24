@@ -1,3 +1,8 @@
+2026: PreSonus's VSL software no longer runs on current macOS.  VSLMixer/
+is a replacement: a native Mac mixer that talks to the AudioBox directly.
+See VSLMixer/README.md.  The rest of this file describes the original 2012
+tool, which remote-controls the PreSonus VSL app.
+
 Usage:
 ------
 

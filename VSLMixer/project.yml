@@ -1,0 +1,51 @@
+# Generate VSLMixer.xcodeproj with:  xcodegen generate
+name: VSLMixer
+options:
+  bundleIdPrefix: com.jefftk
+  deploymentTarget:
+    macOS: "14.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+targets:
+  VSLMixer:
+    type: application
+    platform: macOS
+    sources:
+      - path: App
+      - path: Engine
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: VSL Mixer
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        LSApplicationCategoryType: public.app-category.music
+        LSMinimumSystemVersion: "14.0"
+        NSMicrophoneUsageDescription: VSL Mixer needs audio input access to mix the signals coming into your interface.
+    entitlements:
+      path: App/VSLMixer.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.device.audio-input: true
+        com.apple.security.assets.music.read-write: true
+    settings:
+      base:
+        PRODUCT_NAME: VSL Mixer
+        PRODUCT_BUNDLE_IDENTIFIER: com.jefftk.vslmixer
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_OBJC_BRIDGING_HEADER: App/BridgingHeader.h
+        GCC_C_LANGUAGE_STANDARD: c11
+        ENABLE_HARDENED_RUNTIME: YES
+        DEVELOPMENT_TEAM: C58DMTY76R
+      configs:
+        Debug:
+          # Signed with a real identity so macOS remembers the microphone
+          # permission across rebuilds (ad-hoc builds get re-prompted).
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: Apple Development
+        Release:
+          CODE_SIGN_STYLE: Automatic
+          CODE_SIGN_IDENTITY: Apple Development

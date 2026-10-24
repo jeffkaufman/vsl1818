@@ -1,0 +1,6 @@
+# The PreSonus Windows installer is copyrighted; don't redistribute it.
+*.exe
+.venv/
+xcuserdata/
+*.xcuserstate
+DerivedData/

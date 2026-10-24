@@ -1,0 +1,349 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		192546F585C1F7C9ADF7FB48 /* ChannelEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90EA1BDA7BF9396FDB666E11 /* ChannelEditor.swift */; };
+		431C4883541EA5EA5A3E7B4B /* SetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CAD59A8D2884FB5F2B742EF /* SetupView.swift */; };
+		4603788D788AB94B49E01462 /* VSLMixerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1397C412A225382AEE6B5D1F /* VSLMixerApp.swift */; };
+		8ECFD268EAE5AB05FFB32314 /* Model.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28BC57E3B34DBFA3A2DD7388 /* Model.swift */; };
+		900FD2B85E04C4EE5A5927E6 /* Controls.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7C195680883985036E5C05A /* Controls.swift */; };
+		9C42A8899C21EFB9B2AFAF87 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 668C6A19A5BCF98320DC00D2 /* Theme.swift */; };
+		A2479292933C3E8DE016AA74 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34713F3F14BC07F14A459136 /* AppState.swift */; };
+		A2890E77A3E4D5EA69F5EC8F /* engine.c in Sources */ = {isa = PBXBuildFile; fileRef = F1058A8B893CCBDD6CC82D23 /* engine.c */; };
+		A7C0F0ED1ED0858FEA2F8396 /* MixerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 769014BB8CE357000E0FAF02 /* MixerView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		1397C412A225382AEE6B5D1F /* VSLMixerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VSLMixerApp.swift; sourceTree = "<group>"; };
+		28BC57E3B34DBFA3A2DD7388 /* Model.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Model.swift; sourceTree = "<group>"; };
+		34713F3F14BC07F14A459136 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+		504FF238EB18F0E6EF773A8F /* engine.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = engine.h; sourceTree = "<group>"; };
+		5BD5592F4DF3B65AD1885309 /* VSLMixer.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = VSLMixer.entitlements; sourceTree = "<group>"; };
+		668C6A19A5BCF98320DC00D2 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		769014BB8CE357000E0FAF02 /* MixerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MixerView.swift; sourceTree = "<group>"; };
+		90EA1BDA7BF9396FDB666E11 /* ChannelEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelEditor.swift; sourceTree = "<group>"; };
+		9CAD59A8D2884FB5F2B742EF /* SetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupView.swift; sourceTree = "<group>"; };
+		B70ACB1000F3175853342805 /* BridgingHeader.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = BridgingHeader.h; sourceTree = "<group>"; };
+		C00A84D438A36AC9BA1F0524 /* VSLMixer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VSLMixer.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C0AE8066A9AAF60F1B6B4D8A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		F1058A8B893CCBDD6CC82D23 /* engine.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = engine.c; sourceTree = "<group>"; };
+		F7C195680883985036E5C05A /* Controls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Controls.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		35EE3568B68D2F0A9FF47B72 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				C00A84D438A36AC9BA1F0524 /* VSLMixer.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		87F74B0037AAFE129397B4B6 = {
+			isa = PBXGroup;
+			children = (
+				B8409D1D0E0656356419C6E0 /* App */,
+				A3B08AE11BE329A7F6A9B535 /* Engine */,
+				35EE3568B68D2F0A9FF47B72 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A3B08AE11BE329A7F6A9B535 /* Engine */ = {
+			isa = PBXGroup;
+			children = (
+				F1058A8B893CCBDD6CC82D23 /* engine.c */,
+				504FF238EB18F0E6EF773A8F /* engine.h */,
+			);
+			path = Engine;
+			sourceTree = "<group>";
+		};
+		B8409D1D0E0656356419C6E0 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				34713F3F14BC07F14A459136 /* AppState.swift */,
+				B70ACB1000F3175853342805 /* BridgingHeader.h */,
+				90EA1BDA7BF9396FDB666E11 /* ChannelEditor.swift */,
+				F7C195680883985036E5C05A /* Controls.swift */,
+				C0AE8066A9AAF60F1B6B4D8A /* Info.plist */,
+				769014BB8CE357000E0FAF02 /* MixerView.swift */,
+				28BC57E3B34DBFA3A2DD7388 /* Model.swift */,
+				9CAD59A8D2884FB5F2B742EF /* SetupView.swift */,
+				668C6A19A5BCF98320DC00D2 /* Theme.swift */,
+				5BD5592F4DF3B65AD1885309 /* VSLMixer.entitlements */,
+				1397C412A225382AEE6B5D1F /* VSLMixerApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		038E9F019F063D7249E9ADA8 /* VSLMixer */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 656B2E73BD60F30FF88F612E /* Build configuration list for PBXNativeTarget "VSLMixer" */;
+			buildPhases = (
+				E094086B5DAB642774756563 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = VSLMixer;
+			packageProductDependencies = (
+			);
+			productName = VSLMixer;
+			productReference = C00A84D438A36AC9BA1F0524 /* VSLMixer.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		3F655EF82D883614194A3D91 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					038E9F019F063D7249E9ADA8 = {
+						DevelopmentTeam = C58DMTY76R;
+					};
+				};
+			};
+			buildConfigurationList = BDC790D48FE4BF6A8FED3B68 /* Build configuration list for PBXProject "VSLMixer" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 87F74B0037AAFE129397B4B6;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 35EE3568B68D2F0A9FF47B72 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				038E9F019F063D7249E9ADA8 /* VSLMixer */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		E094086B5DAB642774756563 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A2479292933C3E8DE016AA74 /* AppState.swift in Sources */,
+				192546F585C1F7C9ADF7FB48 /* ChannelEditor.swift in Sources */,
+				900FD2B85E04C4EE5A5927E6 /* Controls.swift in Sources */,
+				A7C0F0ED1ED0858FEA2F8396 /* MixerView.swift in Sources */,
+				8ECFD268EAE5AB05FFB32314 /* Model.swift in Sources */,
+				431C4883541EA5EA5A3E7B4B /* SetupView.swift in Sources */,
+				9C42A8899C21EFB9B2AFAF87 /* Theme.swift in Sources */,
+				4603788D788AB94B49E01462 /* VSLMixerApp.swift in Sources */,
+				A2890E77A3E4D5EA69F5EC8F /* engine.c in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		0A1132B080C5DACA1D3C5E70 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		8E955A9CE60116B7F8EE7853 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = App/VSLMixer.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Manual;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = C58DMTY76R;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GCC_C_LANGUAGE_STANDARD = c11;
+				INFOPLIST_FILE = App/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jefftk.vslmixer;
+				PRODUCT_NAME = "VSL Mixer";
+				SDKROOT = macosx;
+				SWIFT_OBJC_BRIDGING_HEADER = App/BridgingHeader.h;
+			};
+			name = Debug;
+		};
+		9B3363956794E39510C61F3A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		9C1D686B634DE12E55A6B57D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = App/VSLMixer.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = C58DMTY76R;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GCC_C_LANGUAGE_STANDARD = c11;
+				INFOPLIST_FILE = App/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jefftk.vslmixer;
+				PRODUCT_NAME = "VSL Mixer";
+				SDKROOT = macosx;
+				SWIFT_OBJC_BRIDGING_HEADER = App/BridgingHeader.h;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		656B2E73BD60F30FF88F612E /* Build configuration list for PBXNativeTarget "VSLMixer" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8E955A9CE60116B7F8EE7853 /* Debug */,
+				9C1D686B634DE12E55A6B57D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		BDC790D48FE4BF6A8FED3B68 /* Build configuration list for PBXProject "VSLMixer" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0A1132B080C5DACA1D3C5E70 /* Debug */,
+				9B3363956794E39510C61F3A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 3F655EF82D883614194A3D91 /* Project object */;
+}
