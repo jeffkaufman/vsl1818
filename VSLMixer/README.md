@@ -70,7 +70,8 @@ An overnight soak at 48 kHz / 16 frames hasn't been run yet.
 ```
 Engine/engine.{h,c}   real-time mixer, device IO, recorder (C)
 App/                  SwiftUI app
-Tests/                offline DSP tests and a hardware loopback test
+Remote/               phone control page (HTML/CSS/JS, served by the app)
+Tests/                offline DSP tests, a hardware loopback test, phone-control tests
 Tools/                latency and dropout measurement tools
 project.yml           XcodeGen spec; VSLMixer.xcodeproj is generated from it
 ```
@@ -121,6 +122,40 @@ touches the Swift runtime.
   because they apply to every output.  No pan.  EQ and compressor have no
   on/off; flat and 1:1 are the defaults.  Names are edited in place.
 
+### Phone control
+
+Musicians control their own aux from their phones, and the owner can run the
+whole board, from any phone browser (Android or iPhone), with nothing to
+install.
+
+- `RemoteServer.swift` serves `Remote/` over plain HTTP on port 8080 (or the
+  next free even port) and speaks JSON over a WebSocket on the port after it.
+  The protocol is documented at the top of that file.  Everything runs on the
+  main queue; state goes out at most every 40 ms and meters 15 times a
+  second, and slow phones skip meter frames.
+- Roles: `aux` clients can only move their own aux's sends and master.
+  `board` needs the passcode (`Session.remoteCode`, four digits, shown in the
+  Phones sheet).  Changing the passcode drops phones that were using the old
+  one.  Mute, EQ and compression are board-only because they affect every
+  output.  Values from phones are clamped (`ChannelSettings.limits`).
+- `PhonesView.swift` is the Phones sheet: QR codes to join the Wi-Fi (if you
+  enter its name and password), one per aux (`/#aux/N`), and one for the
+  whole board (`/#board`).
+- The page (`remote.js`) is portrait, with screens chosen by the URL hash: pick
+  a mix, your aux, the whole board (output chips plus rows with Mute), and a
+  channel's EQ and compressor (touch-draggable points).  The EQ math is a port
+  of the engine's filter design.  Faders drag relative to where they were, so
+  a tap never jumps; the −/+ buttons step one whole dB and repeat when held.
+  While a control is being moved, the mixer's echo of it is ignored for
+  700 ms so the finger doesn't fight the network.
+- Networking: phones must be on the same network as the Mac.  With no venue
+  Wi-Fi, use a pocket travel router (most reliable), or Internet Sharing to
+  Wi-Fi.  Neither has been tried at a gig yet.  Phones warn there's no
+  internet but stay connected.  The page can't keep phone screens awake,
+  because the Screen Wake Lock API needs HTTPS.
+- Bluetooth was considered: Web Bluetooth would work on Android only, for
+  roughly one phone at a time, so Wi-Fi it is.
+
 ## Building
 
 ```
@@ -149,6 +184,15 @@ and Music-folder access, ready for the Mac App Store.  Before submitting:
 Tests/run_tests.sh              # offline: filter curves, routing, EQ, compressor, mute
 Tests/run_tests.sh --hardware   # also through the real box
 ```
+
+`Tests/remote_test.py` (needs the app running; `pip install websockets
+playwright` into a venv) checks the phone protocol: roles, permissions,
+clamping, broadcasting, meters, saving.  With `--ui` it also drives the page
+in headless Chrome at Pixel, iPhone and small-iPhone sizes, with touch: drags
+faders and EQ/compressor points and checks that the mixer heard them.  It
+changes the live board, so it saves a snapshot, silences every master while
+it runs, and restores everything afterwards.  If a run dies partway, the next
+run restores the snapshot first.
 
 The hardware test needs each output N cabled to input N.  It injects a tone on
 out 1, has the mixer route in 1 only to Aux 1 (out 3), and uses the app's own
@@ -179,8 +223,8 @@ and flags any 64-sample window that deviates, so a dropout can't hide.  At
 ## Not done yet
 
 - Overnight soak at 48 kHz / 16 frames.
-- Remote control from phones (the owner wants this eventually; the old Python
-  tool in the repo root did this for the PreSonus VSL app).
+- Phone control hasn't been tried on real phones or at a gig, only in headless
+  Chrome.
 - App Store submission (see above).
 - The compressor editor's live dot uses the pre-EQ input level.
 - Recordings stop at WAV's 4 GB-per-file limit (~8.3 h at 48 kHz) instead of

@@ -91,8 +91,9 @@ private enum Band: Int, CaseIterable, Identifiable {
 
 private struct EQGeometry {
     let size: CGSize
-    func x(_ f: Double) -> CGFloat { size.width * log(f / 20) / log(1000) }
-    func f(_ x: CGFloat) -> Double { 20 * pow(1000, Double(x / size.width)) }
+    let pad: CGFloat   // keeps the handles at the ends fully visible
+    func x(_ f: Double) -> CGFloat { pad + (size.width - 2 * pad) * log(f / 20) / log(1000) }
+    func f(_ x: CGFloat) -> Double { 20 * pow(1000, Double((x - pad) / (size.width - 2 * pad))) }
     func y(_ db: Double) -> CGFloat { size.height / 2 - db / 18 * size.height / 2 }
     func db(_ y: CGFloat) -> Double { Double((size.height / 2 - y) / (size.height / 2)) * 18 }
 
@@ -122,7 +123,7 @@ struct EQEditor: View {
                 ResetButton(title: "Reset to flat", enabled: s.eqActive) { app.session.channels[channel].flattenEQ() }
             }
             GeometryReader { geo in
-                let g = EQGeometry(size: geo.size)
+                let g = EQGeometry(size: geo.size, pad: 14 * k)
                 Canvas { ctx, size in draw(ctx, g, s) }
                     .contentShape(Rectangle())
                     .gesture(dragGesture(g))
@@ -276,10 +277,12 @@ struct EQEditor: View {
 
 private struct CompGeometry {
     let side: CGFloat
-    func x(_ input: Double) -> CGFloat { (input + 60) / 60 * side }
-    func input(_ x: CGFloat) -> Double { Double(x / side) * 60 - 60 }
-    func y(_ out: Double) -> CGFloat { (12 - out) / 72 * side }
-    func out(_ y: CGFloat) -> Double { 12 - Double(y / side) * 72 }
+    let pad: CGFloat   // keeps the handles at the edges fully visible
+    private var span: CGFloat { side - 2 * pad }
+    func x(_ input: Double) -> CGFloat { pad + (input + 60) / 60 * span }
+    func input(_ x: CGFloat) -> Double { Double((x - pad) / span) * 60 - 60 }
+    func y(_ out: Double) -> CGFloat { pad + (12 - out) / 72 * span }
+    func out(_ y: CGFloat) -> Double { 12 - Double((y - pad) / span) * 72 }
 }
 
 struct CompEditor: View {
@@ -298,7 +301,7 @@ struct CompEditor: View {
                     .fixedSize(horizontal: false, vertical: true)
                 GeometryReader { geo in
                     let side = min(geo.size.width, geo.size.height)
-                    let g = CompGeometry(side: side)
+                    let g = CompGeometry(side: side, pad: 16 * k)
                     Canvas { ctx, _ in draw(ctx, g, s) }
                         .frame(width: side, height: side)
                         .background(Theme.well)

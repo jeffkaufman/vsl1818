@@ -9,8 +9,9 @@ enum FaderScale {
     static let unity = 0.75
     static let off = 0.03   // below this the fader is fully off
 
-    // Breakpoints (position, dB); linear in dB between them.
-    private static let points: [(p: Double, db: Double)] = [
+    // Breakpoints (position, dB); linear in dB between them.  The phone page
+    // gets these too, so both ends agree on what a position means.
+    static let points: [(p: Double, db: Double)] = [
         (off, -30), (0.25, -20), (0.5, -10), (0.75, 0), (1.0, 10)]
 
     /// Bumped whenever the mapping changes, so saved positions can be converted.
@@ -131,6 +132,17 @@ struct ChannelSettings: Codable, Equatable {
         return (over > 0 ? thresholdDb + over / ratio : db) + makeupDb
     }
 
+    /// Allowed range for each processing parameter, by name.  Used to
+    /// validate changes arriving from phones.
+    static let limits: [String: (WritableKeyPath<ChannelSettings, Double>, ClosedRange<Double>)] = [
+        "hpfHz": (\.hpfHz, hpfOff...400),
+        "lowDb": (\.lowDb, -18...18), "lowHz": (\.lowHz, 30...500),
+        "midDb": (\.midDb, -18...18), "midHz": (\.midHz, 150...8000), "midQ": (\.midQ, 0.3...5),
+        "highDb": (\.highDb, -18...18), "highHz": (\.highHz, 1500...18000),
+        "thresholdDb": (\.thresholdDb, -50...(-2)), "ratio": (\.ratio, 1...20), "makeupDb": (\.makeupDb, 0...20),
+        "attackMs": (\.attackMs, 0.2...100), "releaseMs": (\.releaseMs, 20...1000),
+    ]
+
     // Saved sessions and scenes stay loadable as fields come and go.
     private enum CodingKeys: String, CodingKey {
         case name, muted, hpfHz, lowDb, lowHz, midDb, midHz, midQ, highDb, highHz
@@ -178,6 +190,12 @@ struct Session: Codable, Equatable {
     var sampleRate = 48000.0
     var bufferFrames = 32
     var faderTaper: Int? = FaderScale.currentTaper   // missing in older saves
+
+    // Phone control.  Optional so sessions saved before it existed still load.
+    var remoteEnabled: Bool? = true
+    var remoteCode: String?        // passcode for the whole-board page
+    var wifiName: String?          // only used to draw a join-Wi-Fi QR code
+    var wifiPassword: String?
 
     static var initial: Session {
         // Everything starts pulled down so a fresh install never surprises

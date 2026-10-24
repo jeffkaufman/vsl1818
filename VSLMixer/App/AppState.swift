@@ -49,6 +49,9 @@ final class AppState {
     var lastRecording: URL?
     var recordingError: String?
     var recordingSecondsLeft: Double?
+    var showPhones = false
+    var remoteStatus = RemoteServer.Status.off
+    var remoteConnections: [String] = []   // e.g. "Aux 2 (Fiddle)", "Whole board"
     var now = Date()
     let meters = Meters()
 
@@ -61,11 +64,16 @@ final class AppState {
     @ObservationIgnored private var stalledTicks = 0
     @ObservationIgnored private var retryTicks = 0
     @ObservationIgnored private var failedRestarts = 0
+    @ObservationIgnored private var meterTicks = 0
+    @ObservationIgnored private(set) var remote: RemoteServer!
 
     init() {
         session = Self.loadSession() ?? .initial
         pushAll()
         refreshScenes()
+        remote = RemoteServer(app: self)
+        if session.remoteCode == nil { session.remoteCode = Self.newPasscode() }
+        if session.remoteEnabled != false { remote.start() }
         meterTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.readMeters() }
         }
@@ -78,6 +86,7 @@ final class AppState {
     }
 
     func shutdown() {
+        remote?.stop()
         stopRecording()
         mx_engine_stop(engine)
         saveNow()
@@ -200,6 +209,8 @@ final class AppState {
         for m in 0..<mixCount {
             meters.mix[m] = ballistic(meters.mix[m], mix[m])
         }
+        meterTicks += 1
+        if meterTicks % 2 == 0 { remote?.broadcastMeters(meters) }
     }
 
     // MARK: - settings
@@ -210,8 +221,27 @@ final class AppState {
             if old.sampleRate != session.sampleRate { stopRecording() }
             restartEngine()
         }
+        if old.remoteEnabled != session.remoteEnabled {
+            if session.remoteEnabled == false { remote?.stop() } else { remote?.start() }
+        }
+        if old.remoteCode != session.remoteCode && old.remoteCode != nil { remote?.revokeBoard() }
         pushAll()
+        remote?.markDirty()
         scheduleSave()
+    }
+
+    // MARK: - phones
+
+    static func newPasscode() -> String { String(format: "%04d", Int.random(in: 0...9999)) }
+
+    func remoteClientsChanged() {
+        remoteConnections = (remote?.roles ?? []).map { role in
+            switch role {
+            case .board: return "Whole board"
+            case .aux(let m): return session.mixes[m].name
+            default: return ""
+            }
+        }.filter { !$0.isEmpty }.sorted()
     }
 
     private func pushAll() {

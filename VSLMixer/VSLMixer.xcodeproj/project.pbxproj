@@ -8,11 +8,14 @@
 
 /* Begin PBXBuildFile section */
 		192546F585C1F7C9ADF7FB48 /* ChannelEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90EA1BDA7BF9396FDB666E11 /* ChannelEditor.swift */; };
+		326EAD56022BE75F95452ADE /* RemoteServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E0DFCF52D113E3201DDABDA /* RemoteServer.swift */; };
 		431C4883541EA5EA5A3E7B4B /* SetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CAD59A8D2884FB5F2B742EF /* SetupView.swift */; };
 		4603788D788AB94B49E01462 /* VSLMixerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1397C412A225382AEE6B5D1F /* VSLMixerApp.swift */; };
+		5C45ED2DBC0BFA63C5F1BEBF /* Remote in Resources */ = {isa = PBXBuildFile; fileRef = 97F20EAB97230A4FFA664619 /* Remote */; };
 		8ECFD268EAE5AB05FFB32314 /* Model.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28BC57E3B34DBFA3A2DD7388 /* Model.swift */; };
 		900FD2B85E04C4EE5A5927E6 /* Controls.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7C195680883985036E5C05A /* Controls.swift */; };
 		9C42A8899C21EFB9B2AFAF87 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 668C6A19A5BCF98320DC00D2 /* Theme.swift */; };
+		9DC1975726937519DADFE27A /* PhonesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B60ADA679F4846CB65B9811 /* PhonesView.swift */; };
 		A2479292933C3E8DE016AA74 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34713F3F14BC07F14A459136 /* AppState.swift */; };
 		A2890E77A3E4D5EA69F5EC8F /* engine.c in Sources */ = {isa = PBXBuildFile; fileRef = F1058A8B893CCBDD6CC82D23 /* engine.c */; };
 		A7C0F0ED1ED0858FEA2F8396 /* MixerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 769014BB8CE357000E0FAF02 /* MixerView.swift */; };
@@ -22,11 +25,14 @@
 		1397C412A225382AEE6B5D1F /* VSLMixerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VSLMixerApp.swift; sourceTree = "<group>"; };
 		28BC57E3B34DBFA3A2DD7388 /* Model.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Model.swift; sourceTree = "<group>"; };
 		34713F3F14BC07F14A459136 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+		4B60ADA679F4846CB65B9811 /* PhonesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhonesView.swift; sourceTree = "<group>"; };
 		504FF238EB18F0E6EF773A8F /* engine.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = engine.h; sourceTree = "<group>"; };
 		5BD5592F4DF3B65AD1885309 /* VSLMixer.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = VSLMixer.entitlements; sourceTree = "<group>"; };
 		668C6A19A5BCF98320DC00D2 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		6E0DFCF52D113E3201DDABDA /* RemoteServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteServer.swift; sourceTree = "<group>"; };
 		769014BB8CE357000E0FAF02 /* MixerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MixerView.swift; sourceTree = "<group>"; };
 		90EA1BDA7BF9396FDB666E11 /* ChannelEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelEditor.swift; sourceTree = "<group>"; };
+		97F20EAB97230A4FFA664619 /* Remote */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Remote; sourceTree = SOURCE_ROOT; };
 		9CAD59A8D2884FB5F2B742EF /* SetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupView.swift; sourceTree = "<group>"; };
 		B70ACB1000F3175853342805 /* BridgingHeader.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = BridgingHeader.h; sourceTree = "<group>"; };
 		C00A84D438A36AC9BA1F0524 /* VSLMixer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VSLMixer.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -47,6 +53,7 @@
 		87F74B0037AAFE129397B4B6 = {
 			isa = PBXGroup;
 			children = (
+				97F20EAB97230A4FFA664619 /* Remote */,
 				B8409D1D0E0656356419C6E0 /* App */,
 				A3B08AE11BE329A7F6A9B535 /* Engine */,
 				35EE3568B68D2F0A9FF47B72 /* Products */,
@@ -72,6 +79,8 @@
 				C0AE8066A9AAF60F1B6B4D8A /* Info.plist */,
 				769014BB8CE357000E0FAF02 /* MixerView.swift */,
 				28BC57E3B34DBFA3A2DD7388 /* Model.swift */,
+				4B60ADA679F4846CB65B9811 /* PhonesView.swift */,
+				6E0DFCF52D113E3201DDABDA /* RemoteServer.swift */,
 				9CAD59A8D2884FB5F2B742EF /* SetupView.swift */,
 				668C6A19A5BCF98320DC00D2 /* Theme.swift */,
 				5BD5592F4DF3B65AD1885309 /* VSLMixer.entitlements */,
@@ -88,6 +97,7 @@
 			buildConfigurationList = 656B2E73BD60F30FF88F612E /* Build configuration list for PBXNativeTarget "VSLMixer" */;
 			buildPhases = (
 				E094086B5DAB642774756563 /* Sources */,
+				2C15E336741E043E80ACAC7A /* Resources */,
 			);
 			buildRules = (
 			);
@@ -133,6 +143,17 @@
 		};
 /* End PBXProject section */
 
+/* Begin PBXResourcesBuildPhase section */
+		2C15E336741E043E80ACAC7A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5C45ED2DBC0BFA63C5F1BEBF /* Remote in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		E094086B5DAB642774756563 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -143,6 +164,8 @@
 				900FD2B85E04C4EE5A5927E6 /* Controls.swift in Sources */,
 				A7C0F0ED1ED0858FEA2F8396 /* MixerView.swift in Sources */,
 				8ECFD268EAE5AB05FFB32314 /* Model.swift in Sources */,
+				9DC1975726937519DADFE27A /* PhonesView.swift in Sources */,
+				326EAD56022BE75F95452ADE /* RemoteServer.swift in Sources */,
 				431C4883541EA5EA5A3E7B4B /* SetupView.swift in Sources */,
 				9C42A8899C21EFB9B2AFAF87 /* Theme.swift in Sources */,
 				4603788D788AB94B49E01462 /* VSLMixerApp.swift in Sources */,

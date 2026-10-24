@@ -20,15 +20,16 @@ enum Theme {
     // lightness (OKLCH L 0.33, chroma 0.045), so none stands out or recedes.  Only the parts of the
     // window that belong to one output take its color, so it's always obvious
     // which output the faders drive and that mute and processing don't vary.
-    static let mixes: [MixTheme] = [
-        MixTheme(ground: Color(hex: 0x34363C), ink: Color(hex: 0xFFFFFF)),
-        MixTheme(ground: Color(hex: 0x26374D), ink: Color(hex: 0x7FB2FF)),
-        MixTheme(ground: Color(hex: 0x253D2A), ink: Color(hex: 0x5BD495)),
-        MixTheme(ground: Color(hex: 0x3A314A), ink: Color(hex: 0xBE9BFF)),
-        MixTheme(ground: Color(hex: 0x48301F), ink: Color(hex: 0xFFAE6B)),
-        MixTheme(ground: Color(hex: 0x143D3F), ink: Color(hex: 0x4FD6DC)),
-        MixTheme(ground: Color(hex: 0x492C37), ink: Color(hex: 0xFF86B0)),
+    static let mixHex: [(ground: UInt32, ink: UInt32)] = [
+        (0x34363C, 0xFFFFFF),
+        (0x26374D, 0x7FB2FF),
+        (0x253D2A, 0x5BD495),
+        (0x3A314A, 0xBE9BFF),
+        (0x48301F, 0xFFAE6B),
+        (0x143D3F, 0x4FD6DC),
+        (0x492C37, 0xFF86B0),
     ]
+    static let mixes: [MixTheme] = mixHex.map { MixTheme(ground: Color(hex: $0.ground), ink: Color(hex: $0.ink)) }
 
     static let background = Color(hex: 0x16171A)
     static let text = Color(hex: 0xEDEEF0)

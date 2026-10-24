@@ -24,6 +24,8 @@
 	<string>public.app-category.music</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>VSL Mixer serves a control page so phones on your network can adjust their monitor mixes.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>VSL Mixer needs audio input access to mix the signals coming into your interface.</string>
 </dict>

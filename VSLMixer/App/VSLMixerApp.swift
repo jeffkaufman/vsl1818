@@ -45,5 +45,6 @@ struct ContentView: View {
         .foregroundStyle(Theme.text)
         .preferredColorScheme(.dark)
         .sheet(isPresented: $app.showSetup) { SetupView().environment(app) }
+        .sheet(isPresented: $app.showPhones) { PhonesView().environment(app).preferredColorScheme(.dark) }
     }
 }

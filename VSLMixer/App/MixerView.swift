@@ -42,6 +42,9 @@ struct HeaderBar: View {
             }
             RecordButton()
             ScenesMenu()
+            HeaderButton(title: app.remoteConnections.isEmpty ? "Phones" : "Phones (\(app.remoteConnections.count))") {
+                app.showPhones = true
+            }
             HeaderButton(title: "Setup") { app.showSetup = true }
                 .keyboardShortcut(",", modifiers: .command)
         }
