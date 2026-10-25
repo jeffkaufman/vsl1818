@@ -4,7 +4,7 @@ let channelCount = Int(MX_CHANNELS)
 let mixCount = Int(MX_MIXES)
 
 /// Fader positions run 0...1.  The bottom of the travel is off; everything
-/// above it covers −30…+10 dB, so the fader's length goes to useful levels.
+/// above it covers −20…+10 dB, so the fader's length goes to useful levels.
 enum FaderScale {
     static let unity = 0.75
     static let off = 0.03   // below this the fader is fully off
@@ -12,12 +12,16 @@ enum FaderScale {
     // Breakpoints (position, dB); linear in dB between them.  The phone page
     // gets these too, so both ends agree on what a position means.
     static let points: [(p: Double, db: Double)] = [
-        (off, -30), (0.25, -20), (0.5, -10), (0.75, 0), (1.0, 10)]
+        (off, -20), (0.5, -10), (0.75, 0), (1.0, 10)]
 
     /// Bumped whenever the mapping changes, so saved positions can be converted.
-    static let currentTaper = 2
+    static let currentTaper = 3
 
     static func db(_ position: Double) -> Double {
+        db(position, points: points)
+    }
+
+    private static func db(_ position: Double, points: [(p: Double, db: Double)]) -> Double {
         if position < off { return -.infinity }
         for i in 1..<points.count where position <= points[i].p {
             let a = points[i - 1], b = points[i]
@@ -49,10 +53,16 @@ enum FaderScale {
     /// Rewrites positions saved under an older mapping so levels don't change.
     static func migrate(_ mixes: inout [Mix], from taper: Int?) {
         guard taper != currentTaper else { return }
-        func convert(_ p: Double) -> Double {   // taper 1: 0.8 was unity
-            let v = p * 100
-            if v <= 0 { return 0 }
-            return position(forDb: v >= 40 ? (v - 80) * 0.5 : -20 - (40 - v) * 1.5)
+        func oldDb(_ p: Double) -> Double {
+            if taper == 2 {   // −30 dB at the bottom
+                return db(p, points: [(off, -30), (0.25, -20), (0.5, -10), (0.75, 0), (1.0, 10)])
+            }
+            let v = p * 100   // taper 1: 0.8 was unity
+            if v <= 0 { return -.infinity }
+            return v >= 40 ? (v - 80) * 0.5 : -20 - (40 - v) * 1.5
+        }
+        func convert(_ p: Double) -> Double {   // below the new bottom is off
+            position(forDb: oldDb(p))
         }
         for m in mixes.indices {
             mixes[m].sends = mixes[m].sends.map(convert)
@@ -181,6 +191,36 @@ struct Mix: Codable, Equatable {
     var name: String
     var sends: [Double]   // fader positions, one per channel
     var master: Double
+    // The output's own EQ, compressor and mute, applied before the master.
+    // Its name is unused.
+    var processing = ChannelSettings(name: "")
+
+    private enum CodingKeys: String, CodingKey { case name, sends, master, processing }
+}
+
+extension Mix {
+    // Kept in an extension so the memberwise initializer survives.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decode(String.self, forKey: .name)
+        sends = try c.decode([Double].self, forKey: .sends)
+        master = try c.decode(Double.self, forKey: .master)
+        processing = (try? c.decodeIfPresent(ChannelSettings.self, forKey: .processing)) ?? ChannelSettings(name: "")
+    }
+}
+
+/// Something with its own EQ, compressor and mute: an input, or an output.
+enum Strip: Hashable {
+    case input(Int)
+    case output(Int)
+
+    /// Index for mx_engine_read_scope.
+    var scopeSource: Int32 {
+        switch self {
+        case .input(let c): Int32(c)
+        case .output(let m): Int32(channelCount + m)
+        }
+    }
 }
 
 struct Session: Codable, Equatable {
@@ -207,6 +247,44 @@ struct Session: Codable, Equatable {
                     sends: Array(repeating: 0, count: channelCount),
                     master: FaderScale.unity)
             })
+    }
+
+    subscript(strip s: Strip) -> ChannelSettings {
+        get {
+            switch s {
+            case .input(let c): channels[c]
+            case .output(let m): mixes[m].processing
+            }
+        }
+        set {
+            switch s {
+            case .input(let c): channels[c] = newValue
+            case .output(let m): mixes[m].processing = newValue
+            }
+        }
+    }
+
+    subscript(name s: Strip) -> String {
+        get {
+            switch s {
+            case .input(let c): channels[c].name
+            case .output(let m): mixes[m].name
+            }
+        }
+        set {
+            switch s {
+            case .input(let c): channels[c].name = newValue
+            case .output(let m): mixes[m].name = newValue
+            }
+        }
+    }
+
+    /// "In 3", "Out 1–2"
+    static func jacks(of s: Strip) -> String {
+        switch s {
+        case .input(let c): "In \(c + 1)"
+        case .output(let m): outputs(ofMix: m)
+        }
     }
 
     /// Which output jacks a mix drives.

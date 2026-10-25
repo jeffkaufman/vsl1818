@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		192546F585C1F7C9ADF7FB48 /* ChannelEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90EA1BDA7BF9396FDB666E11 /* ChannelEditor.swift */; };
+		298147434C2DFA3F5153B897 /* Spectrum.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83E8667764CB34337AF8045F /* Spectrum.swift */; };
 		326EAD56022BE75F95452ADE /* RemoteServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E0DFCF52D113E3201DDABDA /* RemoteServer.swift */; };
 		431C4883541EA5EA5A3E7B4B /* SetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CAD59A8D2884FB5F2B742EF /* SetupView.swift */; };
 		4603788D788AB94B49E01462 /* VSLMixerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1397C412A225382AEE6B5D1F /* VSLMixerApp.swift */; };
@@ -31,6 +32,7 @@
 		668C6A19A5BCF98320DC00D2 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		6E0DFCF52D113E3201DDABDA /* RemoteServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteServer.swift; sourceTree = "<group>"; };
 		769014BB8CE357000E0FAF02 /* MixerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MixerView.swift; sourceTree = "<group>"; };
+		83E8667764CB34337AF8045F /* Spectrum.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Spectrum.swift; sourceTree = "<group>"; };
 		90EA1BDA7BF9396FDB666E11 /* ChannelEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelEditor.swift; sourceTree = "<group>"; };
 		97F20EAB97230A4FFA664619 /* Remote */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Remote; sourceTree = SOURCE_ROOT; };
 		9CAD59A8D2884FB5F2B742EF /* SetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupView.swift; sourceTree = "<group>"; };
@@ -82,6 +84,7 @@
 				4B60ADA679F4846CB65B9811 /* PhonesView.swift */,
 				6E0DFCF52D113E3201DDABDA /* RemoteServer.swift */,
 				9CAD59A8D2884FB5F2B742EF /* SetupView.swift */,
+				83E8667764CB34337AF8045F /* Spectrum.swift */,
 				668C6A19A5BCF98320DC00D2 /* Theme.swift */,
 				5BD5592F4DF3B65AD1885309 /* VSLMixer.entitlements */,
 				1397C412A225382AEE6B5D1F /* VSLMixerApp.swift */,
@@ -167,6 +170,7 @@
 				9DC1975726937519DADFE27A /* PhonesView.swift in Sources */,
 				326EAD56022BE75F95452ADE /* RemoteServer.swift in Sources */,
 				431C4883541EA5EA5A3E7B4B /* SetupView.swift in Sources */,
+				298147434C2DFA3F5153B897 /* Spectrum.swift in Sources */,
 				9C42A8899C21EFB9B2AFAF87 /* Theme.swift in Sources */,
 				4603788D788AB94B49E01462 /* VSLMixerApp.swift in Sources */,
 				A2890E77A3E4D5EA69F5EC8F /* engine.c in Sources */,

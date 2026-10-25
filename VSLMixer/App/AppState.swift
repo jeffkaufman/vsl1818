@@ -4,8 +4,8 @@ import Observation
 
 enum Route: Equatable {
     case mixer
-    case eq(Int)
-    case comp(Int)
+    case eq(Strip)
+    case comp(Strip)
 }
 
 /// Meter readings in dBFS, with display ballistics applied.
@@ -13,7 +13,24 @@ enum Route: Equatable {
 final class Meters {
     var input = Array(repeating: -120.0, count: channelCount)
     var gainReduction = Array(repeating: 0.0, count: channelCount)
+    var mixIn = Array(repeating: -120.0, count: mixCount)   // before the output's processing
+    var mixGainReduction = Array(repeating: 0.0, count: mixCount)
     var mix = Array(repeating: -120.0, count: mixCount)
+
+    /// What goes into a strip's EQ and compressor.
+    func level(before s: Strip) -> Double {
+        switch s {
+        case .input(let c): input[c]
+        case .output(let m): mixIn[m]
+        }
+    }
+
+    func gainReduction(of s: Strip) -> Double {
+        switch s {
+        case .input(let c): gainReduction[c]
+        case .output(let m): mixGainReduction[m]
+        }
+    }
 }
 
 struct AudioStatus: Equatable {
@@ -54,6 +71,7 @@ final class AppState {
     var remoteConnections: [String] = []   // e.g. "Aux 2 (Fiddle)", "Whole board"
     var now = Date()
     let meters = Meters()
+    let spectrum = Spectrum()
 
     @ObservationIgnored private let engine: OpaquePointer = mx_engine_create()
     @ObservationIgnored private var meterTimer: Timer?
@@ -186,16 +204,13 @@ final class AppState {
     }
 
     private func readMeters() {
-        var input = [Float](repeating: 0, count: channelCount)
-        var gr = [Float](repeating: 0, count: channelCount)
-        var mix = [Float](repeating: 0, count: mixCount)
-        input.withUnsafeMutableBufferPointer { i in
-            gr.withUnsafeMutableBufferPointer { g in
-                mix.withUnsafeMutableBufferPointer { m in
-                    mx_engine_read_meters(engine, i.baseAddress, g.baseAddress, m.baseAddress)
-                }
-            }
-        }
+        var raw = mx_meters()
+        mx_engine_read_meters(engine, &raw)
+        let input = withUnsafeBytes(of: raw.in_peak) { Array($0.bindMemory(to: Float.self)) }
+        let gr = withUnsafeBytes(of: raw.gr_db) { Array($0.bindMemory(to: Float.self)) }
+        let mixIn = withUnsafeBytes(of: raw.mix_in_peak) { Array($0.bindMemory(to: Float.self)) }
+        let mixGR = withUnsafeBytes(of: raw.mix_gr_db) { Array($0.bindMemory(to: Float.self)) }
+        let mix = withUnsafeBytes(of: raw.mix_peak) { Array($0.bindMemory(to: Float.self)) }
         // Peaks jump up immediately and fall back at 24 dB/s.
         let fall = 24.0 / 30
         func ballistic(_ old: Double, _ peak: Float) -> Double {
@@ -207,7 +222,13 @@ final class AppState {
             meters.gainReduction[c] = Double(gr[c])
         }
         for m in 0..<mixCount {
+            meters.mixIn[m] = ballistic(meters.mixIn[m], mixIn[m])
+            meters.mixGainReduction[m] = Double(mixGR[m])
             meters.mix[m] = ballistic(meters.mix[m], mix[m])
+        }
+        if case .eq(let strip) = route {
+            spectrum.update(engine: engine, source: strip.scopeSource,
+                            sampleRate: status.sampleRate > 0 ? status.sampleRate : session.sampleRate)
         }
         meterTicks += 1
         if meterTicks % 2 == 0 { remote?.broadcastMeters(meters) }
@@ -251,6 +272,9 @@ final class AppState {
             mx_engine_set_mute(engine, Int32(c), ch.muted)
         }
         for (m, mix) in session.mixes.enumerated() {
+            var s = mix.processing.engineSettings
+            mx_engine_set_mix_processing(engine, Int32(m), &s)
+            mx_engine_set_mix_mute(engine, Int32(m), mix.processing.muted)
             mx_engine_set_master(engine, Int32(m), FaderScale.gain(mix.master))
             for (c, pos) in mix.sends.enumerated() {
                 mx_engine_set_send(engine, Int32(m), Int32(c), FaderScale.gain(pos))

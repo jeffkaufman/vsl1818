@@ -88,16 +88,47 @@ int main(void) {
     check("compressor 4:1, 10 dB over (dBFS)", run_tone(e, 0, 1000, pow(10, -0.5), 1.0, 0), -17.5, 0.5);
     s.comp_makeup_db = 5;
     mx_engine_set_channel(e, 0, &s);
-    float pk[MX_CHANNELS], gr[MX_CHANNELS], mx[MX_MIXES];
-    mx_engine_read_meters(e, pk, gr, mx);  // meters hold peaks since the last read
+    mx_meters mt;
+    mx_engine_read_meters(e, &mt);  // meters hold peaks since the last read
     check("compressor + 5 dB makeup (dBFS)", run_tone(e, 0, 1000, pow(10, -0.5), 1.0, 0), -12.5, 0.5);
-    mx_engine_read_meters(e, pk, gr, mx);
-    check("gain-reduction meter (dB)", gr[0], 7.5, 0.5);
-    check("input peak meter (dBFS)", 20 * log10(pk[0]), -10, 0.1);
+    mx_engine_read_meters(e, &mt);
+    check("gain-reduction meter (dB)", mt.gr_db[0], 7.5, 0.5);
+    check("input peak meter (dBFS)", 20 * log10(mt.in_peak[0]), -10, 0.1);
+
+    float scope[MX_SCOPE_FRAMES];
+    mx_engine_read_scope(e, 0, scope);
+    double spk = 0;
+    for (int i = 0; i < MX_SCOPE_FRAMES; i++) spk = fmax(spk, fabs(scope[i]));
+    check("scope holds the raw input (dBFS)", 20 * log10(spk), -10, 0.1);
 
     mx_engine_set_mute(e, 0, true);
     check("muted channel (dBFS)", run_tone(e, 0, 1000, 0.5, 0.5, 0), -240, 1);
     check("muted in aux too (dBFS)", run_tone(e, 0, 1000, 0.5, 0.5, 4), -240, 1);
+
+    printf("Output processing\n");
+    s = flat();
+    mx_engine_set_channel(e, 0, &s);
+    mx_engine_set_mute(e, 0, false);
+    s.eq_on = true; s.mid_db = -6; s.mid_hz = 1000;
+    mx_engine_set_mix_processing(e, 3, &s);
+    check("aux 3 EQ -6 at 1 kHz (dBFS)", run_tone(e, 0, 1000, 0.5, 0.5, 4), ref - 6.02 - 6, 0.1);
+    check("main unaffected by aux EQ (dBFS)", run_tone(e, 0, 1000, 0.5, 0.5, 0), ref, 0.05);
+    s = flat(); s.comp_on = true; s.comp_threshold_db = -20; s.comp_ratio = 4;
+    s.comp_attack_ms = 1; s.comp_release_ms = 100;
+    mx_engine_set_mix_processing(e, 0, &s);
+    mx_engine_read_meters(e, &mt);
+    check("main compressor 4:1, 10 dB over (dBFS)", run_tone(e, 0, 1000, pow(10, -0.5), 1.0, 0), -17.5, 0.5);
+    mx_engine_read_meters(e, &mt);
+    check("main gain-reduction meter (dB)", mt.mix_gr_db[0], 7.5, 0.5);
+    check("main pre-processing peak (dBFS)", 20 * log10(mt.mix_in_peak[0]), -10, 0.1);
+    check("input has no gain reduction (dB)", mt.gr_db[0], 0, 0.01);
+    mx_engine_read_scope(e, MX_CHANNELS + 0, scope);
+    spk = 0;
+    for (int i = 0; i < MX_SCOPE_FRAMES; i++) spk = fmax(spk, fabs(scope[i]));
+    check("main scope is before its processing (dBFS)", 20 * log10(spk), -10, 0.1);
+    mx_engine_set_mix_mute(e, 3, true);
+    check("muted aux 3 (dBFS)", run_tone(e, 0, 1000, 0.5, 0.5, 4), -240, 1);
+    check("main still plays (dBFS)", run_tone(e, 0, 1000, pow(10, -0.5), 1.0, 0), -17.5, 0.5);
     mx_engine_destroy(e);
 
     printf(failures ? "\n%d FAILED\n" : "\nall passed\n", failures);

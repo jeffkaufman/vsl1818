@@ -367,13 +367,13 @@ function masterRow(mix) {
   const el = h('div', { class: 'master' },
     h('div', { class: 'rowhead' }, name, db),
     h('div', { class: 'ctl' },
-      stepButton('−', 'Master down 1 dB', () => set(stepPos(get(), -1))),
+      stepButton('−', 'Output down 1 dB', () => set(stepPos(get(), -1))),
       f.el,
-      stepButton('+', 'Master up 1 dB', () => set(stepPos(get(), 1)))));
+      stepButton('+', 'Output up 1 dB', () => set(stepPos(get(), 1)))));
   function update() {
-    name.textContent = `${S.mixes[mix].name} master`;
+    name.textContent = S.mixes[mix].name;
     db.textContent = fmtDb(dbAt(get()));
-    f.el.setAttribute('aria-label', `${S.mixes[mix].name} master`);
+    f.el.setAttribute('aria-label', `${S.mixes[mix].name} level`);
     f.draw();
   }
   return { el, update, meters() { setMeter(meter, M.mix[mix]); } };

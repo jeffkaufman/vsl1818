@@ -5,12 +5,12 @@ enum EditorTab { case eq, comp }
 struct ChannelEditorView: View {
     @Environment(\.uiScale) private var k
     @Environment(AppState.self) private var app
-    let channel: Int
+    let strip: Strip
     let tab: EditorTab
 
     var body: some View {
-        let muted = Binding(get: { app.session.channels[channel].muted },
-                            set: { app.session.channels[channel].muted = $0 })
+        let muted = Binding(get: { app.session[strip: strip].muted },
+                            set: { app.session[strip: strip].muted = $0 })
         VStack(alignment: .leading, spacing: 14 * k) {
             HStack(spacing: 16 * k) {
                 Button { app.route = .mixer } label: {
@@ -22,27 +22,33 @@ struct ChannelEditorView: View {
                 .buttonStyle(.plain)
                 .keyboardShortcut(.escape, modifiers: [])
                 VStack(alignment: .leading, spacing: 1 * k) {
-                    Text("In \(channel + 1)").font(.system(size: 12 * k)).foregroundStyle(Theme.secondary)
-                    EditableName(text: Binding(get: { app.session.channels[channel].name },
-                                               set: { app.session.channels[channel].name = $0 }), size: 20)
+                    Text(Session.jacks(of: strip)).font(.system(size: 12 * k)).foregroundStyle(Theme.secondary)
+                    EditableName(text: Binding(get: { app.session[name: strip] },
+                                               set: { app.session[name: strip] = $0 }), size: 20)
                 }
                 HStack(spacing: 4 * k) {
-                    tabButton("EQ", selected: tab == .eq) { app.route = .eq(channel) }
-                    tabButton("Compressor", selected: tab == .comp) { app.route = .comp(channel) }
+                    tabButton("EQ", selected: tab == .eq) { app.route = .eq(strip) }
+                    tabButton("Compressor", selected: tab == .comp) { app.route = .comp(strip) }
                 }
                 .padding(3 * k)
                 .background(RoundedRectangle(cornerRadius: 10 * k).fill(Theme.panel))
                 .overlay(RoundedRectangle(cornerRadius: 10 * k).stroke(Theme.control))
                 Spacer()
                 HStack(spacing: 8 * k) {
-                    Text("Input").font(.system(size: 12 * k)).foregroundStyle(Theme.secondary)
-                    MeterBar(db: app.meters.input[channel], horizontal: true).frame(width: 180 * k)
+                    switch strip {
+                    case .input(let c):
+                        Text("Input").font(.system(size: 12 * k)).foregroundStyle(Theme.secondary)
+                        MeterBar(db: app.meters.input[c], horizontal: true).frame(width: 180 * k)
+                    case .output(let m):
+                        Text("Output").font(.system(size: 12 * k)).foregroundStyle(Theme.secondary)
+                        MeterBar(db: app.meters.mix[m], horizontal: true).frame(width: 180 * k)
+                    }
                 }
-                MuteButton(muted: muted, height: 34 * k).frame(width: 90 * k)
+                MuteButton(muted: muted, height: 34 * k, help: Theme.muteHelp(strip)).frame(width: 90 * k)
             }
             switch tab {
-            case .eq: EQEditor(channel: channel)
-            case .comp: CompEditor(channel: channel)
+            case .eq: EQEditor(strip: strip)
+            case .comp: CompEditor(strip: strip)
             }
         }
         .padding(.horizontal, 20 * k).padding(.top, 10 * k).padding(.bottom, 20 * k)
@@ -107,24 +113,26 @@ private struct EQGeometry {
 struct EQEditor: View {
     @Environment(\.uiScale) private var k
     @Environment(AppState.self) private var app
-    let channel: Int
+    let strip: Strip
     @State private var selected = Band.mid
     @State private var dragging: Band?
     @State private var grabOffset = CGSize.zero
     @FocusState private var focused: Bool
 
     var body: some View {
-        let s = app.session.channels[channel]
+        let s = app.session[strip: strip]
         VStack(alignment: .leading, spacing: 10 * k) {
             HStack {
-                Text("Drag the points to shape the curve. The high-pass is off at the far left; drag it right to roll off lows.")
+                Text("Drag the points to shape the curve. The high-pass is off at the far left; drag it right to roll off lows. The shading is the live spectrum after EQ; the thin line is before.")
                     .uiFont(13).foregroundStyle(Theme.secondary)
                 Spacer()
-                ResetButton(title: "Reset to flat", enabled: s.eqActive) { app.session.channels[channel].flattenEQ() }
+                ResetButton(title: "Reset to flat", enabled: s.eqActive) { app.session[strip: strip].flattenEQ() }
             }
             GeometryReader { geo in
                 let g = EQGeometry(size: geo.size, pad: 14 * k)
-                Canvas { ctx, size in draw(ctx, g, s) }
+                let spectrum = app.spectrum
+                let _ = spectrum.bins   // redraw as it updates
+                Canvas { ctx, size in draw(ctx, g, s, spectrum) }
                     .contentShape(Rectangle())
                     .gesture(dragGesture(g))
                     .focusable()
@@ -141,9 +149,9 @@ struct EQEditor: View {
             .accessibilityLabel("EQ curve, \(selected.name) selected")
             .accessibilityValue(info(s))
             .accessibilityAdjustableAction { dir in
-                var c = app.session.channels[channel]
+                var c = app.session[strip: strip]
                 selected.set(&c, freq: selected.freq(c), gain: (selected.gain(c) ?? 0) + (dir == .increment ? 0.5 : -0.5))
-                app.session.channels[channel] = c
+                app.session[strip: strip] = c
             }
 
             HStack(spacing: 16 * k) {
@@ -170,8 +178,8 @@ struct EQEditor: View {
             .frame(minHeight: 36 * k)
         }
         .padding(16 * k)
-        .background(RoundedRectangle(cornerRadius: 12 * k).fill(Theme.panel))
-        .overlay(RoundedRectangle(cornerRadius: 12 * k).stroke(Theme.border))
+        .background(RoundedRectangle(cornerRadius: 12 * k).fill(Theme.panel(strip)))
+        .overlay(RoundedRectangle(cornerRadius: 12 * k).stroke(Theme.panelBorder(strip), lineWidth: Theme.panelLine(strip)))
     }
 
 
@@ -182,7 +190,7 @@ struct EQEditor: View {
     }
 
     private func setQ(_ q: Double) {
-        app.session.channels[channel].midQ = (min(5, max(0.3, q)) * 10).rounded() / 10
+        app.session[strip: strip].midQ = (min(5, max(0.3, q)) * 10).rounded() / 10
     }
 
     private func stepButton(_ icon: String, _ label: String, action: @escaping () -> Void) -> some View {
@@ -196,7 +204,7 @@ struct EQEditor: View {
     }
 
     private func nudge(_ key: KeyEquivalent) {
-        var c = app.session.channels[channel]
+        var c = app.session[strip: strip]
         var f = selected.freq(c), gain = selected.gain(c) ?? 0
         switch key {
         case .leftArrow: f /= 1.06
@@ -205,13 +213,13 @@ struct EQEditor: View {
         default: gain -= 0.5
         }
         selected.set(&c, freq: f, gain: gain)
-        app.session.channels[channel] = c
+        app.session[strip: strip] = c
     }
 
     private func dragGesture(_ g: EQGeometry) -> some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { v in
-                let s = app.session.channels[channel]
+                let s = app.session[strip: strip]
                 if dragging == nil {
                     let near = Band.allCases.map { ($0, g.handle($0, s)) }
                         .min { hypot($0.1.x - v.startLocation.x, $0.1.y - v.startLocation.y)
@@ -225,13 +233,14 @@ struct EQEditor: View {
                 guard let b = dragging else { return }
                 var c = s
                 b.set(&c, freq: g.f(v.location.x + grabOffset.width), gain: g.db(v.location.y + grabOffset.height))
-                app.session.channels[channel] = c
+                app.session[strip: strip] = c
             }
             .onEnded { _ in dragging = nil }
     }
 
-    private func draw(_ ctx: GraphicsContext, _ g: EQGeometry, _ s: ChannelSettings) {
+    private func draw(_ ctx: GraphicsContext, _ g: EQGeometry, _ s: ChannelSettings, _ spectrum: Spectrum) {
         let w = g.size.width, h = g.size.height
+        drawSpectrum(ctx, g, s, spectrum)
         for f in [100.0, 1000, 10000] {
             ctx.stroke(Path { $0.move(to: CGPoint(x: g.x(f), y: 0)); $0.addLine(to: CGPoint(x: g.x(f), y: h)) },
                        with: .color(.white.opacity(0.10)))
@@ -273,6 +282,32 @@ struct EQEditor: View {
     }
 }
 
+extension EQEditor {
+    /// The live spectrum on its own scale, −90…0 dBFS bottom to top, behind
+    /// the curve.  After EQ is the signal before plus the EQ's response,
+    /// since the EQ is linear.
+    fileprivate func drawSpectrum(_ ctx: GraphicsContext, _ g: EQGeometry, _ s: ChannelSettings, _ spectrum: Spectrum) {
+        let w = g.size.width, h = g.size.height
+        func y(_ dbfs: Double) -> CGFloat { h * CGFloat(min(1, max(0, -dbfs / 90))) }
+        var before = Path(), after = Path()
+        after.move(to: CGPoint(x: 0, y: h))
+        let step: CGFloat = 2
+        var started = false
+        for x in stride(from: CGFloat(0), through: w, by: step) {
+            let f = g.f(x)
+            guard let level = spectrum.level(from: f, to: g.f(x + step)).map(Double.init) else { continue }
+            let p = CGPoint(x: x, y: y(level))
+            if started { before.addLine(to: p) } else { before.move(to: p); started = true }
+            after.addLine(to: CGPoint(x: x, y: y(level + s.eqResponse(at: f))))
+        }
+        guard started else { return }
+        after.addLine(to: CGPoint(x: w, y: h))
+        after.closeSubpath()
+        ctx.fill(after, with: .color(.white.opacity(0.10)))
+        ctx.stroke(before, with: .color(.white.opacity(0.28)), lineWidth: 1)
+    }
+}
+
 // MARK: - Compressor
 
 private struct CompGeometry {
@@ -288,12 +323,12 @@ private struct CompGeometry {
 struct CompEditor: View {
     @Environment(\.uiScale) private var k
     @Environment(AppState.self) private var app
-    let channel: Int
+    let strip: Strip
     @State private var dragging: String?
     @State private var grabOffset = CGSize.zero
 
     var body: some View {
-        let s = app.session.channels[channel]
+        let s = app.session[strip: strip]
         HStack(alignment: .top, spacing: 16 * k) {
             VStack(alignment: .leading, spacing: 10 * k) {
                 Text("Drag the knee to set threshold (left/right) and makeup gain (up/down). Drag the right-hand point to set the ratio. The green dot is the live input.")
@@ -320,7 +355,7 @@ struct CompEditor: View {
                 HStack {
                     Text("Compressor").uiFont(15, .semibold)
                     Spacer()
-                    ResetButton(title: "Reset to linear", enabled: s.compActive) { app.session.channels[channel].linearComp() }
+                    ResetButton(title: "Reset to linear", enabled: s.compActive) { app.session[strip: strip].linearComp() }
                 }
                 Grid(alignment: .leading, horizontalSpacing: 12 * k, verticalSpacing: 10 * k) {
                     row("Threshold", String(format: "%.1f dB", s.thresholdDb))
@@ -328,7 +363,7 @@ struct CompEditor: View {
                     row("Makeup gain", signedDb(s.makeupDb))
                 }
                 VStack(alignment: .leading, spacing: 6 * k) {
-                    let gr = app.meters.gainReduction[channel]
+                    let gr = app.meters.gainReduction(of: strip)
                     HStack {
                         Text("Gain reduction").foregroundStyle(Theme.secondary)
                         Spacer()
@@ -354,8 +389,8 @@ struct CompEditor: View {
         }
         .padding(16 * k)
         .frame(maxHeight: .infinity)
-        .background(RoundedRectangle(cornerRadius: 12 * k).fill(Theme.panel))
-        .overlay(RoundedRectangle(cornerRadius: 12 * k).stroke(Theme.border))
+        .background(RoundedRectangle(cornerRadius: 12 * k).fill(Theme.panel(strip)))
+        .overlay(RoundedRectangle(cornerRadius: 12 * k).stroke(Theme.panelBorder(strip), lineWidth: Theme.panelLine(strip)))
     }
 
     private func summary(_ s: ChannelSettings) -> String {
@@ -372,10 +407,10 @@ struct CompEditor: View {
 
     private func logSlider(_ label: String, value kp: WritableKeyPath<ChannelSettings, Double>,
                            low: Double, high: Double, format: @escaping (Double) -> String) -> some View {
-        let v = app.session.channels[channel][keyPath: kp]
+        let v = app.session[strip: strip][keyPath: kp]
         let t = Binding(
-            get: { log(app.session.channels[channel][keyPath: kp] / low) / log(high / low) },
-            set: { app.session.channels[channel][keyPath: kp] = low * pow(high / low, $0) })
+            get: { log(app.session[strip: strip][keyPath: kp] / low) / log(high / low) },
+            set: { app.session[strip: strip][keyPath: kp] = low * pow(high / low, $0) })
         return VStack(alignment: .leading, spacing: 4 * k) {
             HStack {
                 Text(label).foregroundStyle(Theme.secondary)
@@ -395,7 +430,7 @@ struct CompEditor: View {
     private func dragGesture(_ g: CompGeometry) -> some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { v in
-                let s = app.session.channels[channel]
+                let s = app.session[strip: strip]
                 if dragging == nil {
                     guard let near = handles(g, s).min(by: {
                         hypot($0.1.x - v.startLocation.x, $0.1.y - v.startLocation.y)
@@ -414,7 +449,7 @@ struct CompEditor: View {
                     let rise = output - c.makeupDb - c.thresholdDb
                     c.ratio = rise <= 0.5 ? 20 : min(20, max(1, -c.thresholdDb / rise))
                 }
-                app.session.channels[channel] = c
+                app.session[strip: strip] = c
             }
             .onEnded { _ in dragging = nil }
     }
@@ -438,7 +473,7 @@ struct CompEditor: View {
         curve.addLine(to: CGPoint(x: g.x(0), y: g.y(s.compOutput(forInput: 0))))
         ctx.stroke(curve, with: .color(.white), lineWidth: 3)
 
-        let input = min(0, max(-60, app.meters.input[channel]))
+        let input = min(0, max(-60, app.meters.level(before: strip)))
         let live = CGPoint(x: g.x(input), y: max(0, g.y(s.compOutput(forInput: input))))
         ctx.fill(Path(ellipseIn: CGRect(x: live.x - 6 * k, y: live.y - 6 * k, width: 12 * k, height: 12 * k)), with: .color(Theme.good))
 

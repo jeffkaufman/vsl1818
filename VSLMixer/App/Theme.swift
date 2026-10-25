@@ -44,6 +44,21 @@ enum Theme {
     static let hot = Color(hex: 0xFF5C5C)
     static let gr = Color(hex: 0xFFAE6B)
 
+    // Editors for an output take its colors, like everything else that
+    // belongs to one output.
+    static func panel(_ s: Strip) -> Color {
+        if case .output(let m) = s { mixes[m].ground } else { panel }
+    }
+    static func panelBorder(_ s: Strip) -> Color {
+        if case .output(let m) = s { mixes[m].ink } else { border }
+    }
+    static func panelLine(_ s: Strip) -> CGFloat {
+        if case .output = s { 2 } else { 1 }
+    }
+    static func muteHelp(_ s: Strip) -> String {
+        if case .output = s { "Silences this output" } else { "Mutes this input in every output" }
+    }
+
     static let bands: [Color] = [Color(hex: 0xFFAE6B), Color(hex: 0x7FB2FF),
                                  Color(hex: 0x5BD495), Color(hex: 0xFF86B0)]
 }
@@ -104,6 +119,7 @@ struct MuteButton: View {
     @Environment(\.uiScale) private var k
     @Binding var muted: Bool
     var height: CGFloat = 44
+    var help = "Mutes this input in every output"
 
     var body: some View {
         Button { muted.toggle() } label: {
@@ -116,7 +132,7 @@ struct MuteButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help("Mutes this input in every output")
+        .help(help)
         .accessibilityAddTraits(muted ? .isSelected : [])
     }
 }

@@ -12,6 +12,9 @@
 #define MAX_FRAMES 4096            // largest IO buffer we accept
 #define MAX_DEVICE_CHANNELS 64
 #define RING_FRAMES (1 << 18)      // ~5 s at 48 kHz of recording slack
+// Inputs and mixes share the processing code: strip c < MX_CHANNELS is an
+// input, strip MX_CHANNELS + m is mix m.
+#define STRIPS (MX_CHANNELS + MX_MIXES)
 
 // ---------------------------------------------------------------- filters
 
@@ -107,17 +110,17 @@ typedef struct {
 
 struct mx_engine {
     // ---- written by the UI thread, read by the IO thread
-    mx_channel_settings pending[MX_CHANNELS];
-    _Atomic uint32_t seq[MX_CHANNELS];  // seqlock around pending[]
+    mx_channel_settings pending[STRIPS];
+    _Atomic uint32_t seq[STRIPS];  // seqlock around pending[]
     _Atomic float send[MX_MIXES][MX_CHANNELS];
     _Atomic float master[MX_MIXES];
-    _Atomic bool muted[MX_CHANNELS];
+    _Atomic bool muted[STRIPS];
 
     // ---- IO thread only
     double fs;
     float smooth;   // one-pole coefficient for gain changes
-    uint32_t applied_seq[MX_CHANNELS];
-    channel_rt ch[MX_CHANNELS];
+    uint32_t applied_seq[STRIPS];
+    channel_rt ch[STRIPS];
     float send_g[MX_MIXES][MX_CHANNELS];
     float master_g[MX_MIXES];
     double last_in_time;
@@ -126,8 +129,11 @@ struct mx_engine {
 
     // ---- written by the IO thread, read by the UI thread
     _Atomic float in_peak[MX_CHANNELS];
-    _Atomic float gr_db[MX_CHANNELS];
+    _Atomic float mix_in_peak[MX_MIXES];
+    _Atomic float gr_db[STRIPS];
     _Atomic float mix_peak[MX_MIXES];
+    float scope[MX_SCOPE_FRAMES][STRIPS];
+    _Atomic uint32_t scope_w;
     _Atomic uint64_t callbacks;
     _Atomic uint32_t dropouts;
 
@@ -190,7 +196,7 @@ static void apply_settings(mx_engine *e, int c, const mx_channel_settings *s) {
 static void reset_rt(mx_engine *e, double fs) {
     e->fs = fs;
     e->smooth = (float)(1 - exp(-1.0 / (0.005 * fs)));  // ~5 ms glide
-    for (int c = 0; c < MX_CHANNELS; c++) {
+    for (int c = 0; c < STRIPS; c++) {
         mx_channel_settings s = e->pending[c];
         memset(&e->ch[c], 0, sizeof e->ch[c]);
         e->ch[c].s = default_settings();
@@ -210,7 +216,8 @@ mx_engine *mx_engine_create(void) {
     if (!e) return NULL;
     e->ring = calloc((size_t)RING_FRAMES * MX_CHANNELS, sizeof(float));
     if (!e->ring) { free(e); return NULL; }
-    for (int c = 0; c < MX_CHANNELS; c++) e->pending[c] = default_settings();
+    for (int c = 0; c < STRIPS; c++) e->pending[c] = default_settings();
+    memset(e->scope, 0, sizeof e->scope);   // touch it now, not on the IO thread
     reset_rt(e, 48000);
     return e;
 }
@@ -223,13 +230,19 @@ void mx_engine_destroy(mx_engine *e) {
     free(e);
 }
 
-void mx_engine_set_channel(mx_engine *e, int c, const mx_channel_settings *s) {
-    if (c < 0 || c >= MX_CHANNELS) return;
+static void set_strip(mx_engine *e, int c, const mx_channel_settings *s) {
     uint32_t v = atomic_load_explicit(&e->seq[c], memory_order_relaxed) + 1;
     atomic_store_explicit(&e->seq[c], v, memory_order_relaxed);  // odd: writing
     atomic_thread_fence(memory_order_release);
     e->pending[c] = *s;
     atomic_store_explicit(&e->seq[c], v + 1, memory_order_release);
+}
+
+void mx_engine_set_channel(mx_engine *e, int c, const mx_channel_settings *s) {
+    if (c >= 0 && c < MX_CHANNELS) set_strip(e, c, s);
+}
+void mx_engine_set_mix_processing(mx_engine *e, int m, const mx_channel_settings *s) {
+    if (m >= 0 && m < MX_MIXES) set_strip(e, MX_CHANNELS + m, s);
 }
 
 void mx_engine_set_send(mx_engine *e, int m, int c, float g) {
@@ -241,6 +254,9 @@ void mx_engine_set_master(mx_engine *e, int m, float g) {
 void mx_engine_set_mute(mx_engine *e, int c, bool muted) {
     if (c >= 0 && c < MX_CHANNELS) atomic_store(&e->muted[c], muted);
 }
+void mx_engine_set_mix_mute(mx_engine *e, int m, bool muted) {
+    if (m >= 0 && m < MX_MIXES) atomic_store(&e->muted[MX_CHANNELS + m], muted);
+}
 
 void mx_engine_set_post_hook(mx_engine *e, mx_post_hook hook, void *ctx) {
     e->hook = hook;
@@ -248,7 +264,7 @@ void mx_engine_set_post_hook(mx_engine *e, mx_post_hook hook, void *ctx) {
 }
 
 static void pick_up_settings(mx_engine *e) {
-    for (int c = 0; c < MX_CHANNELS; c++) {
+    for (int c = 0; c < STRIPS; c++) {
         uint32_t s1 = atomic_load_explicit(&e->seq[c], memory_order_acquire);
         if (s1 == e->applied_seq[c] || (s1 & 1)) continue;
         mx_channel_settings tmp = e->pending[c];
@@ -277,12 +293,32 @@ static void record_block(mx_engine *e, const float *in, int in_stride, int frame
     if (n < frames) atomic_fetch_add(&e->rec_overflows, 1);
 }
 
+// High-pass, EQ and compressor; mute is applied by the caller.
+static inline float run_strip(channel_rt *r, float x, float *grmax) {
+    if (r->s.hpf_on) x = bq_run(&r->bq[BQ_HPF], x);
+    if (r->s.eq_on) {
+        x = bq_run(&r->bq[BQ_LOW], x);
+        x = bq_run(&r->bq[BQ_MID], x);
+        x = bq_run(&r->bq[BQ_HIGH], x);
+    }
+    if (r->s.comp_on) {
+        float lvl = fabsf(x);
+        float coef = lvl > r->env ? r->att_coef : r->rel_coef;
+        r->env = lvl + coef * (r->env - lvl);
+        float over = 20.f * log10f(r->env + 1e-9f) - r->s.comp_threshold_db;
+        float gr = over > 0 ? over * (1.f - r->inv_ratio) : 0.f;
+        if (gr > *grmax) *grmax = gr;
+        x *= powf(10.f, (r->s.comp_makeup_db - gr) * 0.05f);
+    }
+    return x;
+}
+
 void mx_engine_process(mx_engine *e, const float *in, int in_stride, float *out,
                        int out_stride, int frames) {
     pick_up_settings(e);
 
-    float mute_t[MX_CHANNELS], send_t[MX_MIXES][MX_CHANNELS], master_t[MX_MIXES];
-    for (int c = 0; c < MX_CHANNELS; c++)
+    float mute_t[STRIPS], send_t[MX_MIXES][MX_CHANNELS], master_t[MX_MIXES];
+    for (int c = 0; c < STRIPS; c++)
         mute_t[c] = atomic_load_explicit(&e->muted[c], memory_order_relaxed) ? 0.f : 1.f;
     for (int m = 0; m < MX_MIXES; m++) {
         master_t[m] = atomic_load_explicit(&e->master[m], memory_order_relaxed);
@@ -294,41 +330,38 @@ void mx_engine_process(mx_engine *e, const float *in, int in_stride, float *out,
         record_block(e, in, in_stride, frames);
 
     const float k = e->smooth;
-    float inpk[MX_CHANNELS] = {0}, grmax[MX_CHANNELS] = {0}, mixpk[MX_MIXES] = {0};
+    float inpk[MX_CHANNELS] = {0}, grmax[STRIPS] = {0}, mixinpk[MX_MIXES] = {0},
+          mixpk[MX_MIXES] = {0};
+    uint32_t sw = atomic_load_explicit(&e->scope_w, memory_order_relaxed);
 
     for (int i = 0; i < frames; i++) {
         float y[MX_CHANNELS];
+        float *scope = e->scope[(sw + i) & (MX_SCOPE_FRAMES - 1)];
         for (int c = 0; c < MX_CHANNELS; c++) {
             channel_rt *r = &e->ch[c];
             float x = in[i * in_stride + c];
+            scope[c] = x;
             float a = fabsf(x);
             if (a > inpk[c]) inpk[c] = a;
-
-            if (r->s.hpf_on) x = bq_run(&r->bq[BQ_HPF], x);
-            if (r->s.eq_on) {
-                x = bq_run(&r->bq[BQ_LOW], x);
-                x = bq_run(&r->bq[BQ_MID], x);
-                x = bq_run(&r->bq[BQ_HIGH], x);
-            }
-            if (r->s.comp_on) {
-                float lvl = fabsf(x);
-                float coef = lvl > r->env ? r->att_coef : r->rel_coef;
-                r->env = lvl + coef * (r->env - lvl);
-                float over = 20.f * log10f(r->env + 1e-9f) - r->s.comp_threshold_db;
-                float gr = over > 0 ? over * (1.f - r->inv_ratio) : 0.f;
-                if (gr > grmax[c]) grmax[c] = gr;
-                x *= powf(10.f, (r->s.comp_makeup_db - gr) * 0.05f);
-            }
+            x = run_strip(r, x, &grmax[c]);
             r->mute_gain += k * (mute_t[c] - r->mute_gain);
             y[c] = x * r->mute_gain;
         }
 
         for (int m = 0; m < MX_MIXES; m++) {
+            int st = MX_CHANNELS + m;
+            channel_rt *r = &e->ch[st];
             float acc = 0;
             for (int c = 0; c < MX_CHANNELS; c++) {
                 e->send_g[m][c] += k * (send_t[m][c] - e->send_g[m][c]);
                 acc += y[c] * e->send_g[m][c];
             }
+            scope[st] = acc;
+            float ai = fabsf(acc);
+            if (ai > mixinpk[m]) mixinpk[m] = ai;
+            acc = run_strip(r, acc, &grmax[st]);
+            r->mute_gain += k * (mute_t[st] - r->mute_gain);
+            acc *= r->mute_gain;
             e->master_g[m] += k * (master_t[m] - e->master_g[m]);
             acc *= e->master_g[m];
             float a = fabsf(acc);
@@ -342,25 +375,41 @@ void mx_engine_process(mx_engine *e, const float *in, int in_stride, float *out,
         }
     }
 
-    for (int c = 0; c < MX_CHANNELS; c++) {
-        peak_max(&e->in_peak[c], inpk[c]);
+    atomic_store_explicit(&e->scope_w, sw + (uint32_t)frames, memory_order_release);
+    for (int c = 0; c < MX_CHANNELS; c++) peak_max(&e->in_peak[c], inpk[c]);
+    for (int c = 0; c < STRIPS; c++)
         atomic_store_explicit(&e->gr_db[c], e->ch[c].s.comp_on ? grmax[c] : 0.f,
                               memory_order_relaxed);
+    for (int m = 0; m < MX_MIXES; m++) {
+        peak_max(&e->mix_in_peak[m], mixinpk[m]);
+        peak_max(&e->mix_peak[m], mixpk[m]);
     }
-    for (int m = 0; m < MX_MIXES; m++) peak_max(&e->mix_peak[m], mixpk[m]);
 
     if (e->hook) e->hook(e->hook_ctx, out, out_stride, frames);
 }
 
 void mx_engine_prepare_offline(mx_engine *e, double fs) { reset_rt(e, fs); }
 
-void mx_engine_read_meters(mx_engine *e, float in_peak[MX_CHANNELS],
-                           float gr_db[MX_CHANNELS], float mix_peak[MX_MIXES]) {
+void mx_engine_read_meters(mx_engine *e, mx_meters *out) {
     for (int c = 0; c < MX_CHANNELS; c++) {
-        in_peak[c] = atomic_exchange(&e->in_peak[c], 0.f);
-        gr_db[c] = atomic_load(&e->gr_db[c]);
+        out->in_peak[c] = atomic_exchange(&e->in_peak[c], 0.f);
+        out->gr_db[c] = atomic_load(&e->gr_db[c]);
     }
-    for (int m = 0; m < MX_MIXES; m++) mix_peak[m] = atomic_exchange(&e->mix_peak[m], 0.f);
+    for (int m = 0; m < MX_MIXES; m++) {
+        out->mix_in_peak[m] = atomic_exchange(&e->mix_in_peak[m], 0.f);
+        out->mix_gr_db[m] = atomic_load(&e->gr_db[MX_CHANNELS + m]);
+        out->mix_peak[m] = atomic_exchange(&e->mix_peak[m], 0.f);
+    }
+}
+
+void mx_engine_read_scope(mx_engine *e, int source, float out[MX_SCOPE_FRAMES]) {
+    if (source < 0 || source >= STRIPS) {
+        memset(out, 0, sizeof(float) * MX_SCOPE_FRAMES);
+        return;
+    }
+    uint32_t w = atomic_load_explicit(&e->scope_w, memory_order_acquire);
+    for (int i = 0; i < MX_SCOPE_FRAMES; i++)
+        out[i] = e->scope[(w + i) & (MX_SCOPE_FRAMES - 1)][source];
 }
 
 // ---------------------------------------------------------------- device IO

@@ -12,6 +12,7 @@
 #define MX_CHANNELS 8
 #define MX_MIXES 7     // 0 = main (outs 1+2), 1..6 = aux 1..6 (outs 3..8)
 #define MX_OUTPUTS 8
+#define MX_SCOPE_FRAMES 4096   // recent samples kept per source for spectra
 
 typedef struct {
     bool hpf_on;
@@ -63,10 +64,27 @@ void mx_engine_set_channel(mx_engine *e, int ch, const mx_channel_settings *s);
 void mx_engine_set_send(mx_engine *e, int mix, int ch, float gain);
 void mx_engine_set_master(mx_engine *e, int mix, float gain);
 void mx_engine_set_mute(mx_engine *e, int ch, bool muted);
+// A mix's own high-pass, EQ, compressor and mute, applied to its sum before
+// the master gain.
+void mx_engine_set_mix_processing(mx_engine *e, int mix, const mx_channel_settings *s);
+void mx_engine_set_mix_mute(mx_engine *e, int mix, bool muted);
 
-// Peaks (linear) since the previous call, and current gain reduction (dB).
-void mx_engine_read_meters(mx_engine *e, float in_peak[MX_CHANNELS],
-                           float gr_db[MX_CHANNELS], float mix_peak[MX_MIXES]);
+typedef struct {
+    float in_peak[MX_CHANNELS];   // linear, before any processing
+    float gr_db[MX_CHANNELS];     // current compressor gain reduction
+    float mix_in_peak[MX_MIXES];  // linear, the sum before the mix's processing
+    float mix_gr_db[MX_MIXES];
+    float mix_peak[MX_MIXES];     // linear, what goes to the jacks
+} mx_meters;
+
+// Peaks since the previous call, and current gain reduction.
+void mx_engine_read_meters(mx_engine *e, mx_meters *m);
+
+// The latest MX_SCOPE_FRAMES samples, oldest first, of input `source`
+// (0..MX_CHANNELS-1) or of mix `source - MX_CHANNELS`, both before any
+// processing.  The oldest few may be torn by a concurrent IO cycle, which a
+// windowed FFT doesn't notice.
+void mx_engine_read_scope(mx_engine *e, int source, float out[MX_SCOPE_FRAMES]);
 
 // Records the raw inputs as eight mono 24-bit WAV files in directory.
 int mx_engine_record_start(mx_engine *e, const char *directory);

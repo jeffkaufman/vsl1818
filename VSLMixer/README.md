@@ -84,14 +84,20 @@ touches the Swift runtime.
 - Signal chain per input: input meter (pre-everything) → high-pass (12 dB/oct
   Butterworth) → low shelf → peaking mid → high shelf (RBJ biquads, double
   precision) → feed-forward peak compressor with hard knee → mute → a send to
-  each of 7 mixes → mix master.  Main is mono and drives outs 1 and 2; aux N
-  drives out N+2.  Outputs 9–18 are silent.
+  each of 7 mixes.  Each mix's sum then gets the same chain (high-pass, EQ,
+  compressor, mute) before its master.  Inputs and mixes share the code as
+  "strips".  Main is mono and drives outs 1 and 2; aux N drives out N+2.
+  Outputs 9–18 are silent.
 - Sections that are flat (high-pass at 20 Hz, all EQ gains 0, ratio 1:1 with
   no makeup) are skipped, so they're bit-exact passthrough.
 - The UI hands over channel settings through a per-channel seqlock; gains,
   mutes and masters are atomics, smoothed over ~5 ms on the IO thread.
 - Recording copies raw inputs into a lock-free ring buffer (~5 s); a writer
   thread drains it to eight mono 24-bit WAVs via ExtAudioFile.
+- The IO thread keeps the last 4096 samples of every input and every mix
+  sum (before processing) for the EQ editor's spectrum; `Spectrum.swift`
+  FFTs it with Accelerate at 30 Hz, only while an EQ editor is open.  The
+  after-EQ spectrum is the before spectrum plus the EQ curve.
 - `mx_eq_response_db` uses the same filter design, so the curves drawn in the
   UI are exactly what's running.
 
@@ -101,10 +107,11 @@ touches the Swift runtime.
   change, and every 0.5 s runs a watchdog that restarts audio after a stall,
   an unplug or an outside sample-rate change.  It also handles recording
   (`~/Music/VSL Mixer/<date>/NN Name.wav`), scenes and persistence.
-- `Model.swift`: `Session` (saved to the sandbox container's
+- `Model.swift`: `Strip` (an input or an output, for the EQ/comp editors),
+  `Session` (saved to the sandbox container's
   `Application Support/VSL Mixer/session.json` and restored at launch),
   `ChannelSettings`, `FaderScale`, `MixerScene`.
-- Fader taper: the bottom 3% is −∞, then −30 dB → +10 dB, with unity at
+- Fader taper: the bottom 3% is −∞, then −20 dB → +10 dB, with unity at
   0.75.  Saved files record a `faderTaper` version; `FaderScale.migrate`
   converts older positions so levels don't change.  Bump `currentTaper` if
   you change the mapping.
@@ -118,7 +125,8 @@ touches the Swift runtime.
   (`uiScale` environment value, `uiFont`, and `* k` on fixed sizes).
 - UI rules from the owner: each output has its own color at equal lightness
   (OKLCH L≈0.33), applied only to the output-specific parts (output buttons,
-  fader boxes, master strip).  Names, EQ, comp, meters and mute are neutral
+  fader boxes, the output strip with its EQ, comp and mute, and the output's
+  EQ/compressor editors).  Input names, EQ, comp, meters and mute are neutral
   because they apply to every output.  No pan.  EQ and compressor have no
   on/off; flat and 1:1 are the defaults.  Names are edited in place.
 

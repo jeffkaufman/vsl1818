@@ -35,21 +35,24 @@ struct PhonesView: View {
                             Text(name).font(.caption).foregroundStyle(.secondary)
                         } else {
                             RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.06))
-                                .frame(width: 150, height: 150)
+                                .frame(width: QRCode.outerSize, height: QRCode.outerSize)
                                 .overlay(Text("Enter the network\nbelow for a QR code")
                                     .font(.caption).multilineTextAlignment(.center).foregroundStyle(.secondary))
                         }
-                        TextField("Network name", text: wifiName).frame(width: 150)
-                        SecureField("Password", text: wifiPassword).frame(width: 150)
+                        TextField("Network name", text: wifiName).frame(width: QRCode.outerSize)
+                        SecureField("Password", text: wifiPassword).frame(width: QRCode.outerSize)
                     }
-                    .frame(width: 160, alignment: .leading)
+                    .frame(width: QRCode.outerSize, alignment: .leading)
 
                     Divider()
 
                     VStack(alignment: .leading, spacing: 8) {
                         Text("2. Open your mix").font(.headline)
-                        LazyVGrid(columns: Array(repeating: GridItem(.fixed(150), spacing: 16), count: 4),
-                                  alignment: .leading, spacing: 14) {
+                        // Columns fit the code plus its white margin; top-aligned so
+                        // the whole-board code's taller caption doesn't push it down.
+                        LazyVGrid(columns: Array(repeating: GridItem(.fixed(QRCode.outerSize), spacing: 20, alignment: .top),
+                                                 count: 4),
+                                  alignment: .leading, spacing: 20) {
                             ForEach(1..<mixCount, id: \.self) { m in
                                 VStack(spacing: 4) {
                                     QRCode(text: "\(base)/#aux/\(m)")
@@ -84,7 +87,7 @@ struct PhonesView: View {
             }
         }
         .padding(24)
-        .frame(width: 900)
+        .frame(width: 1000)
         .onAppear { addresses = RemoteServer.localAddresses() }
     }
 
@@ -132,6 +135,8 @@ struct PhonesView: View {
 struct QRCode: View {
     let text: String
     var size: CGFloat = 150
+    static let margin: CGFloat = 8
+    static let outerSize: CGFloat = 150 + 2 * margin
 
     var body: some View {
         Group {
@@ -144,7 +149,7 @@ struct QRCode: View {
             }
         }
         .frame(width: size, height: size)
-        .padding(8)
+        .padding(Self.margin)
         .background(Color.white)   // cameras need a light quiet zone around the code
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .help(text.hasPrefix("WIFI:") ? "Scan to join the Wi-Fi" : text)

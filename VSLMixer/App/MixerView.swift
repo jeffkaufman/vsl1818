@@ -42,9 +42,7 @@ struct HeaderBar: View {
             }
             RecordButton()
             ScenesMenu()
-            HeaderButton(title: app.remoteConnections.isEmpty ? "Phones" : "Phones (\(app.remoteConnections.count))") {
-                app.showPhones = true
-            }
+            PhonesButton()
             HeaderButton(title: "Setup") { app.showSetup = true }
                 .keyboardShortcut(",", modifiers: .command)
         }
@@ -64,6 +62,35 @@ struct HeaderButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// Shows at a glance whether phones can connect, and how many have.
+struct PhonesButton: View {
+    @Environment(\.uiScale) private var k
+    @Environment(AppState.self) private var app
+
+    var body: some View {
+        let off = app.remoteStatus == .off
+        let failed = if case .failed = app.remoteStatus { true } else { false }
+        let count = app.remoteConnections.count
+        Button { app.showPhones = true } label: {
+            HStack(spacing: 6 * k) {
+                Image(systemName: off || failed ? "iphone.slash" : "iphone")
+                Text(off ? "Phones off" : failed ? "Phones failed" : count == 0 ? "Phones" : "Phones (\(count))")
+            }
+            .uiFont(13)
+            .foregroundStyle(failed ? Theme.hot : off ? Theme.secondary : Theme.text)
+            .padding(.horizontal, 14 * k).frame(height: 34 * k)
+            .background(RoundedRectangle(cornerRadius: 8 * k).fill(off ? Color.clear : Theme.panel))
+            .overlay(RoundedRectangle(cornerRadius: 8 * k)
+                .stroke(Theme.control, style: StrokeStyle(lineWidth: 1, dash: off ? [4 * k, 3 * k] : [])))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(off ? "Phone control is off. Click to turn it on."
+              : failed ? "Phone control couldn't start. Click for details."
+              : "Let musicians control their mixes from their phones")
     }
 }
 
@@ -302,10 +329,10 @@ struct ChannelStrip: View {
             }
             MiniCurveButton(label: "EQ", active: ch.eqActive, tint: .white,
                             reference: HorizontalLine(), curve: MiniEQShape(settings: ch),
-                            help: "Edit \(ch.name) EQ") { app.route = .eq(index) }
+                            help: "Edit \(ch.name) EQ") { app.route = .eq(.input(index)) }
             MiniCurveButton(label: "Comp", active: ch.compActive, tint: .white,
                             reference: UnityLine(), curve: MiniCompShape(settings: ch),
-                            help: "Edit \(ch.name) compressor") { app.route = .comp(index) }
+                            help: "Edit \(ch.name) compressor") { app.route = .comp(.input(index)) }
             HStack(spacing: 8 * k) {
                 // Only this box belongs to the selected output.
                 VStack(spacing: 8 * k) {
@@ -338,24 +365,36 @@ struct MasterStrip: View {
     var body: some View {
         let mix = app.selectedMix
         let theme = Theme.mixes[mix]
+        let name = app.session.mixes[mix].name
+        let fx = app.session.mixes[mix].processing
         let level = Binding(
             get: { app.session.mixes[mix].master },
             set: { app.session.mixes[mix].master = $0 })
+        let muted = Binding(
+            get: { app.session.mixes[mix].processing.muted },
+            set: { app.session.mixes[mix].processing.muted = $0 })
         VStack(alignment: .leading, spacing: 10 * k) {
             VStack(alignment: .leading, spacing: 1 * k) {
                 Text(Session.outputs(ofMix: mix)).uiFont(12).foregroundStyle(Theme.secondary)
-                Text("\(app.session.mixes[mix].name) master").uiFont(15, .semibold)
+                Text(name).uiFont(15, .semibold)
                     .foregroundStyle(theme.ink).lineLimit(1)
             }
+            MiniCurveButton(label: "EQ", active: fx.eqActive, tint: theme.ink,
+                            reference: HorizontalLine(), curve: MiniEQShape(settings: fx),
+                            help: "Edit \(name) EQ") { app.route = .eq(.output(mix)) }
+            MiniCurveButton(label: "Comp", active: fx.compActive, tint: theme.ink,
+                            reference: UnityLine(), curve: MiniCompShape(settings: fx),
+                            help: "Edit \(name) compressor") { app.route = .comp(.output(mix)) }
             HStack(spacing: 8 * k) {
-                FaderView(value: level, tint: theme.ink, accessibilityName: "\(app.session.mixes[mix].name) master level")
+                FaderView(value: level, tint: theme.ink, accessibilityName: "\(name) level")
                 MeterBar(db: app.meters.mix[mix])
             }
+            .padding(.vertical, 8 * k)
             .frame(maxHeight: .infinity)
             Text(FaderScale.label(level.wrappedValue))
                 .uiFont(13, mono: true)
                 .frame(maxWidth: .infinity)
-            Color.clear.frame(height: 44 * k)
+            MuteButton(muted: muted, help: Theme.muteHelp(.output(mix)))
         }
         .padding(10 * k)
         .frame(width: 150 * k)

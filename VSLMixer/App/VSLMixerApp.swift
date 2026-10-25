@@ -36,8 +36,8 @@ struct ContentView: View {
             Group {
                 switch app.route {
                 case .mixer: MixerView()
-                case .eq(let c): ChannelEditorView(channel: c, tab: .eq)
-                case .comp(let c): ChannelEditorView(channel: c, tab: .comp)
+                case .eq(let s): ChannelEditorView(strip: s, tab: .eq)
+                case .comp(let s): ChannelEditorView(strip: s, tab: .comp)
                 }
             }
             .environment(\.uiScale, min(1.8, max(1, min(geo.size.width / 1440, geo.size.height / 900))))

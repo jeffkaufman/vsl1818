@@ -104,7 +104,7 @@ def protocol_tests(code):
     check("viewer gets state", s is not None and s["t"] == "state")
     check("8 inputs, 7 mixes", len(s["inputs"]) == 8 and len(s["mixes"]) == 7)
     check("viewer sees no processing", not s["board"] and "fx" not in s["inputs"][0])
-    check("taper starts with off point", s["taper"][0][1] == -30)
+    check("taper starts with off point", s["taper"][0][1] == -20)
     viewer.pump(0.5)
     check("viewer gets no meters", viewer.meters == 0, viewer.meters)
 
