@@ -110,6 +110,9 @@ touches the Swift runtime.
   change, and every 0.5 s runs a watchdog that restarts audio after a stall,
   an unplug or an outside sample-rate change.  It also handles recording
   (`~/Music/VSL Mixer/<date>/NN Name.wav`), scenes and persistence.
+- The session is written within 0.2 s of every change (throttled, not
+  debounced, so it keeps saving during a fader move); a crash loses at most
+  that much.
 - `Model.swift`: `Strip` (an input or an output, for the EQ/comp editors),
   `Session` (saved to the sandbox container's
   `Application Support/VSL Mixer/session.json` and restored at launch),

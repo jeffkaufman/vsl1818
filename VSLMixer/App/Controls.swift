@@ -87,6 +87,31 @@ struct MeterBar: View {
     }
 }
 
+/// A meter with a clip light on top.  The light stays red after a clip
+/// until the meter or light is clicked.
+struct MeterWithClip: View {
+    @Environment(\.uiScale) private var k
+    var db: Double
+    @Binding var clipped: Bool
+    var what: String
+
+    var body: some View {
+        VStack(spacing: 4 * k) {
+            RoundedRectangle(cornerRadius: 2 * k)
+                .fill(clipped ? Theme.hot : Color.white.opacity(0.12))
+                .frame(width: 8 * k, height: 12 * k)
+            MeterBar(db: db)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { clipped = false }
+        .help(clipped ? "\(what) clipped. Click to clear." : "Lights red if \(what) clips")
+        .accessibilityElement()
+        .accessibilityLabel(clipped ? "\(what) clipped" : "\(what) not clipped")
+        .accessibilityAddTraits(clipped ? .isButton : [])
+        .accessibilityAction { clipped = false }
+    }
+}
+
 /// The channel's whole high-pass + EQ curve, ±18 dB.
 struct MiniEQShape: Shape {
     var settings: ChannelSettings

@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+import IOKit.pwr_mgt
 import Observation
 
 enum Route: Equatable {
@@ -16,6 +17,14 @@ final class Meters {
     var mixIn = Array(repeating: -120.0, count: mixCount)   // before the output's processing
     var mixGainReduction = Array(repeating: 0.0, count: mixCount)
     var mix = Array(repeating: -120.0, count: mixCount)
+    // Latched until clicked, so a clip mid-tune isn't missed.
+    var inputClipped = Array(repeating: false, count: channelCount)
+    var mixClipped = Array(repeating: false, count: mixCount)
+
+    /// Inputs come from a 24-bit converter, which tops out just under 1.0;
+    /// outputs clip at the converter once they pass 1.0.
+    static let inputClipLevel: Float = 0.99
+    static let outputClipLevel: Float = 1.0
 
     /// What goes into a strip's EQ and compressor.
     func level(before s: Strip) -> Double {
@@ -87,6 +96,8 @@ final class AppState {
     @ObservationIgnored private var failedRestarts = 0
     @ObservationIgnored private var meterTicks = 0
     @ObservationIgnored private(set) var remote: RemoteServer!
+    @ObservationIgnored private var sleepAssertion: IOPMAssertionID = 0
+    @ObservationIgnored private var activationObservers: [NSObjectProtocol] = []
 
     init() {
         session = Self.loadSession() ?? .initial
@@ -104,9 +115,15 @@ final class AppState {
         RunLoop.main.add(meterTimer!, forMode: .common)
         RunLoop.main.add(watchdogTimer!, forMode: .common)
         requestMicrophone()
+        for name in [NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification] {
+            activationObservers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.updateSleepAssertion() }
+            })
+        }
     }
 
     func shutdown() {
+        allowSleep()
         remote?.stop()
         stopRecording()
         mx_engine_stop(engine)
@@ -174,6 +191,7 @@ final class AppState {
     private func watchdog() {
         now = Date()
         updateRecordingTimeLeft()
+        updateSleepAssertion()
         guard permissionGranted else { return }
         var st = mx_stats()
         mx_engine_get_stats(engine, &st)
@@ -223,11 +241,13 @@ final class AppState {
         for c in 0..<channelCount {
             meters.input[c] = ballistic(meters.input[c], input[c])
             meters.gainReduction[c] = Double(gr[c])
+            if input[c] >= Meters.inputClipLevel && !meters.inputClipped[c] { meters.inputClipped[c] = true }
         }
         for m in 0..<mixCount {
             meters.mixIn[m] = ballistic(meters.mixIn[m], mixIn[m])
             meters.mixGainReduction[m] = Double(mixGR[m])
             meters.mix[m] = ballistic(meters.mix[m], mix[m])
+            if mix[m] >= Meters.outputClipLevel && !meters.mixClipped[m] { meters.mixClipped[m] = true }
         }
         if case .eq(let strip) = route {
             spectrum.update(engine: engine, source: strip.scopeSource,
@@ -235,6 +255,29 @@ final class AppState {
         }
         meterTicks += 1
         if meterTicks % 2 == 0 { remote?.broadcastMeters(meters) }
+    }
+
+    // MARK: - sleep
+
+    /// Keeps the Mac awake with the display on, undimmed and unlocked while
+    /// the mixer is in front and audio is running, so a quiet stretch of a
+    /// dance doesn't dim, lock or sleep it.  (Locking follows the screen
+    /// saver and display sleep, which this holds off.)  Closing the lid
+    /// still sleeps it; macOS doesn't let apps prevent that.
+    private func updateSleepAssertion() {
+        if NSApp.isActive && status.state == .running {
+            guard sleepAssertion == 0 else { return }
+            IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleDisplaySleep as CFString,
+                                        IOPMAssertionLevel(kIOPMAssertionLevelOn),
+                                        "VSL Mixer is running live sound" as CFString, &sleepAssertion)
+        } else {
+            allowSleep()
+        }
+    }
+
+    private func allowSleep() {
+        if sleepAssertion != 0 { IOPMAssertionRelease(sleepAssertion) }
+        sleepAssertion = 0
     }
 
     // MARK: - settings
@@ -458,11 +501,15 @@ final class AppState {
         return s
     }
 
+    /// Saves within 0.2 s of any change, and keeps saving at that rate while
+    /// a fader is moving, so a crash loses at most the last fraction of a
+    /// second.  (A debounce would wait for the movement to stop.)
     private func scheduleSave() {
-        saveTask?.cancel()
+        guard saveTask == nil else { return }
         saveTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(500))
-            if !Task.isCancelled { self?.saveNow() }
+            try? await Task.sleep(for: .milliseconds(200))
+            self?.saveTask = nil
+            self?.saveNow()
         }
     }
 

@@ -346,7 +346,9 @@ struct ChannelStrip: View {
                 .padding(.vertical, 8 * k)
                 .background(RoundedRectangle(cornerRadius: 10 * k).fill(theme.ground))
                 .overlay(RoundedRectangle(cornerRadius: 10 * k).stroke(theme.ink.opacity(0.6), lineWidth: 1.5))
-                MeterBar(db: app.meters.input[index])
+                MeterWithClip(db: app.meters.input[index], clipped: Binding(
+                    get: { app.meters.inputClipped[index] }, set: { app.meters.inputClipped[index] = $0 }),
+                    what: "\(ch.name)'s input")
                     .padding(.vertical, 8 * k)
             }
             .frame(maxHeight: .infinity)
@@ -389,7 +391,9 @@ struct MasterStrip: View {
             DelayButton(mix: mix)
             HStack(spacing: 8 * k) {
                 FaderView(value: level, tint: theme.ink, accessibilityName: "\(name) level")
-                MeterBar(db: app.meters.mix[mix])
+                MeterWithClip(db: app.meters.mix[mix], clipped: Binding(
+                    get: { app.meters.mixClipped[mix] }, set: { app.meters.mixClipped[mix] = $0 }),
+                    what: name)
             }
             .padding(.vertical, 8 * k)
             .frame(maxHeight: .infinity)
