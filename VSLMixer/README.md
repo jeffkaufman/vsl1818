@@ -117,7 +117,8 @@ touches the Swift runtime.
   `Session` (saved to the sandbox container's
   `Application Support/VSL Mixer/session.json` and restored at launch),
   `ChannelSettings`, `FaderScale`, `MixerScene`.
-- Fader taper: the bottom 3% is −∞, then −20 dB → +10 dB, with unity at
+- Fader taper: only the very bottom (0.1%) is −∞, so any movement leaves
+  it; then −20 dB → +10 dB, with unity at
   0.75.  Saved files record a `faderTaper` version; `FaderScale.migrate`
   converts older positions so levels don't change.  Bump `currentTaper` if
   you change the mapping.

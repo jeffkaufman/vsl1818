@@ -7,7 +7,7 @@ let mixCount = Int(MX_MIXES)
 /// above it covers −20…+10 dB, so the fader's length goes to useful levels.
 enum FaderScale {
     static let unity = 0.75
-    static let off = 0.03   // below this the fader is fully off
+    static let off = 0.001   // below this the fader is fully off; any movement leaves it
 
     // Breakpoints (position, dB); linear in dB between them.  The phone page
     // gets these too, so both ends agree on what a position means.
@@ -15,14 +15,14 @@ enum FaderScale {
         (off, -20), (0.5, -10), (0.75, 0), (1.0, 10)]
 
     /// Bumped whenever the mapping changes, so saved positions can be converted.
-    static let currentTaper = 3
+    static let currentTaper = 4
 
     static func db(_ position: Double) -> Double {
         db(position, points: points)
     }
 
     private static func db(_ position: Double, points: [(p: Double, db: Double)]) -> Double {
-        if position < off { return -.infinity }
+        if position < points[0].p { return -.infinity }
         for i in 1..<points.count where position <= points[i].p {
             let a = points[i - 1], b = points[i]
             return a.db + (position - a.p) / (b.p - a.p) * (b.db - a.db)
@@ -54,8 +54,11 @@ enum FaderScale {
     static func migrate(_ mixes: inout [Mix], from taper: Int?) {
         guard taper != currentTaper else { return }
         func oldDb(_ p: Double) -> Double {
+            if taper == 3 {   // off below 3%
+                return db(p, points: [(0.03, -20), (0.5, -10), (0.75, 0), (1.0, 10)])
+            }
             if taper == 2 {   // −30 dB at the bottom
-                return db(p, points: [(off, -30), (0.25, -20), (0.5, -10), (0.75, 0), (1.0, 10)])
+                return db(p, points: [(0.03, -30), (0.25, -20), (0.5, -10), (0.75, 0), (1.0, 10)])
             }
             let v = p * 100   // taper 1: 0.8 was unity
             if v <= 0 { return -.infinity }
