@@ -10,7 +10,7 @@ struct PhonesView: View {
 
     var body: some View {
         @Bindable var app = app
-        let enabled = Binding(get: { app.session.remoteEnabled != false },
+        let enabled = Binding(get: { app.session.remoteEnabled == true },
                               set: { app.session.remoteEnabled = $0 })
         let wifiName = Binding(get: { app.session.wifiName ?? "" },
                                set: { app.session.wifiName = $0.isEmpty ? nil : $0 })
@@ -116,7 +116,9 @@ struct PhonesView: View {
         case .failed(let why):
             Text("Couldn't start: \(why)").foregroundStyle(Theme.hot)
         case .off:
-            Text("Phone control is off.").foregroundStyle(.secondary)
+            Text("Phone control is off. Turn it on to let musicians run their mixes from their phones. The first time, macOS asks to let VSL Mixer find devices on your local network: choose Allow, or phones won't be able to connect.")
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

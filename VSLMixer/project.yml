@@ -28,6 +28,7 @@ targets:
         LSMinimumSystemVersion: "14.0"
         NSMicrophoneUsageDescription: VSL Mixer needs audio input access to mix the signals coming into your interface.
         NSLocalNetworkUsageDescription: VSL Mixer serves a control page so phones on your network can adjust their monitor mixes.
+        NSBonjourServices: ["_http._tcp"]
     entitlements:
       path: App/VSLMixer.entitlements
       properties:
@@ -35,6 +36,10 @@ targets:
         com.apple.security.device.audio-input: true
         com.apple.security.assets.music.read-write: true
         com.apple.security.network.server: true
+        # Network.framework needs this to reply on connections it accepted
+        # from other devices; without it the sandbox drops them (localhost
+        # still works, which hides the problem).
+        com.apple.security.network.client: true
     settings:
       base:
         PRODUCT_NAME: VSL Mixer

@@ -136,6 +136,17 @@ Musicians control their own aux from their phones, and the owner can run the
 whole board, from any phone browser (Android or iPhone), with nothing to
 install.
 
+- Phone control is off until someone turns it on in the Phones sheet.  It
+  advertises itself over Bonjour, which makes macOS ask for Local Network
+  access at that point rather than at launch.
+- The sandbox needs `network.client` as well as `network.server`: replying
+  on a connection accepted from another device counts as outbound, and
+  without it the sandbox silently drops every phone's connection
+  ("deny network-outbound" in the system log).  Loads from the Mac itself
+  go over loopback and still work, which hides the problem.
+- Chrome on Android 17 can fail with ERR_TOO_MANY_RETRIES even with Nearby
+  devices allowed; its net log shows ERR_LOCAL_NETWORK_PERMISSION_MISSING
+  and nothing reaches the Mac.  Firefox on the same phone works.
 - `RemoteServer.swift` serves `Remote/` over plain HTTP on port 8080 (or the
   next free even port) and speaks JSON over a WebSocket on the port after it.
   The protocol is documented at the top of that file.  Everything runs on the

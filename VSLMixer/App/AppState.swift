@@ -91,7 +91,7 @@ final class AppState {
         refreshScenes()
         remote = RemoteServer(app: self)
         if session.remoteCode == nil { session.remoteCode = Self.newPasscode() }
-        if session.remoteEnabled != false { remote.start() }
+        if session.remoteEnabled == true { remote.start() }
         meterTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.readMeters() }
         }
@@ -243,7 +243,7 @@ final class AppState {
             restartEngine()
         }
         if old.remoteEnabled != session.remoteEnabled {
-            if session.remoteEnabled == false { remote?.stop() } else { remote?.start() }
+            if session.remoteEnabled == true { remote?.start() } else { remote?.stop() }
         }
         if old.remoteCode != session.remoteCode && old.remoteCode != nil { remote?.revokeBoard() }
         pushAll()

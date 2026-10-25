@@ -232,7 +232,9 @@ struct Session: Codable, Equatable {
     var faderTaper: Int? = FaderScale.currentTaper   // missing in older saves
 
     // Phone control.  Optional so sessions saved before it existed still load.
-    var remoteEnabled: Bool? = true
+    // Off until someone turns it on (nil counts as off), so macOS only asks
+    // for Local Network access when phones are actually wanted.
+    var remoteEnabled: Bool?
     var remoteCode: String?        // passcode for the whole-board page
     var wifiName: String?          // only used to draw a join-Wi-Fi QR code
     var wifiPassword: String?

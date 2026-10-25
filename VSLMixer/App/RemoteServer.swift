@@ -112,6 +112,10 @@ final class RemoteServer {
                     }
                 }
             }
+            // Advertising is also what makes macOS ask for Local Network
+            // access.  Without that permission, replies to phones are
+            // silently dropped even though the Mac itself can load the page.
+            http.service = NWListener.Service(name: "VSL Mixer", type: "_http._tcp")
             http.stateUpdateHandler = onState
             ws.stateUpdateHandler = onState
             http.newConnectionHandler = { [weak self] conn in
