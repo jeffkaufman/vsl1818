@@ -150,6 +150,7 @@ struct mx_engine {
     _Atomic float master[MX_MIXES];
     _Atomic bool muted[STRIPS];
     _Atomic float delay_ms[MX_MIXES];
+    _Atomic bool split_main;
 
     // ---- IO thread only
     double fs;
@@ -316,6 +317,8 @@ void mx_engine_set_mix_delay(mx_engine *e, int m, float ms) {
     if (m >= 0 && m < MX_MIXES) atomic_store(&e->delay_ms[m], ms);
 }
 
+void mx_engine_set_split_main(mx_engine *e, bool on) { atomic_store(&e->split_main, on); }
+
 void mx_engine_set_post_hook(mx_engine *e, mx_post_hook hook, void *ctx) {
     e->hook = hook;
     e->hook_ctx = ctx;
@@ -389,6 +392,7 @@ void mx_engine_process(mx_engine *e, const float *in, int in_stride, float *out,
     if (atomic_load_explicit(&e->recording, memory_order_relaxed))
         record_block(e, in, in_stride, frames);
 
+    const bool split = atomic_load_explicit(&e->split_main, memory_order_relaxed);
     const float k = e->smooth;
     float inpk[MX_CHANNELS] = {0}, grmax[STRIPS] = {0}, mixinpk[MX_MIXES] = {0},
           mixpk[MX_MIXES] = {0};
@@ -427,12 +431,8 @@ void mx_engine_process(mx_engine *e, const float *in, int in_stride, float *out,
             acc = delay_run(&e->delay[m], acc, delay_t[m]);
             float a = fabsf(acc);
             if (a > mixpk[m]) mixpk[m] = a;
-            if (m == 0) {
-                out[i * out_stride + 0] = acc;
-                out[i * out_stride + 1] = acc;
-            } else {
-                out[i * out_stride + m + 1] = acc;
-            }
+            if (split || m > 1) out[i * out_stride + m] = acc;
+            else if (m == 0) out[i * out_stride + 0] = out[i * out_stride + 1] = acc;
         }
     }
 

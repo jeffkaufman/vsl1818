@@ -3,7 +3,7 @@
 A low-latency Mac mixer for the PreSonus AudioBox 1818VSL, replacing the
 discontinued PreSonus VSL software.  Eight inputs, each with high-pass, 3-band
 EQ and a compressor, mixed to Main (outs 1+2) and six mono auxes (outs 3–8),
-plus raw multitrack recording.
+or, with Main split, eight mono auxes, plus raw multitrack recording.
 
 ## Background: there is no DSP in the box
 
@@ -84,12 +84,14 @@ touches the Swift runtime.
 - Signal chain per input: input meter (pre-everything) → high-pass (12 dB/oct
   Butterworth) → low shelf → peaking mid → high shelf (RBJ biquads, double
   precision) → feed-forward peak compressor with hard knee → mute → a send to
-  each of 7 mixes.  Each mix's sum then gets the same chain (high-pass, EQ,
+  each of 8 mixes.  Each mix's sum then gets the same chain (high-pass, EQ,
   compressor, mute) before its master.  Inputs and mixes share the code as
   "strips".  After its master, each mix can be delayed up to 250 ms (to
   line up with distant speakers; the UI shows ms and feet at 1.125 ft/ms);
-  changes crossfade over 256 samples so they don't click.  Main is mono and
-  drives outs 1 and 2; aux N drives out N+2.
+  changes crossfade over 256 samples so they don't click.  Mix m drives out
+  m+1, except that by default Main (mix 0) is mono and drives outs 1 and 2,
+  and mix 1 is unused.  **Outs 1 and 2 as Aux 1 and Aux 2** in Setup
+  (`Session.splitMain`, `mx_engine_set_split_main`) splits them.
   Outputs 9–18 are silent.
 - Sections that are flat (high-pass at 20 Hz, all EQ gains 0, ratio 1:1 with
   no makeup) are skipped, so they're bit-exact passthrough.
@@ -128,14 +130,19 @@ touches the Swift runtime.
 - Scenes live in `Application Support/VSL Mixer/Scenes/*.json`.  "Blank
   board" is built in (defaults, including names).  Every load first saves the
   current board as "Previous", so a load can be undone.
-- Auxes are named for the jack they drive, Aux 3–8 on outs 3–8, so no one
-  has to remember that "Aux 1" is out 3.  Internally (engine, protocol,
-  `#aux/N` links) they're still mixes 1–6.  `Mix.migrateNames` renumbers
-  default names in older sessions and scenes (the `auxNames` version).
+- Auxes are named for the jack they drive, Aux N on out N, and the "Out N"
+  label is hidden while the name says it.  Mix indices (engine, protocol,
+  `#aux/N` links) are one less than the jack.  Unless Main is split, Aux 2
+  (mix 1) is hidden everywhere: `Session.shownMixes` lists what's in use and
+  `isAux` what a phone may take.  Splitting renames "Main" to "Aux 1" (and
+  back) if it has its default name; Aux 2 keeps its own settings, which
+  start silent.  `Mix.migrateNames` renumbers names in older sessions and
+  scenes and inserts Aux 2 into ones with seven mixes (the `auxNames`
+  version).
 - The layout is designed at 1440×900 and scales up with the window to 1.8×
   (`uiScale` environment value, `uiFont`, and `* k` on fixed sizes).
 - UI rules from the owner: each output has its own color at equal lightness
-  (OKLCH L≈0.33), applied only to the output-specific parts (output buttons,
+  (OKLCH L≈0.33, chroma 0.045; Main/Aux 1 is grey, Aux 2 gold at hue 100), applied only to the output-specific parts (output buttons,
   fader boxes, the output strip with its EQ, comp and mute, and the output's
   EQ/compressor editors).  Input names, EQ, comp, meters and mute are neutral
   because they apply to every output.  No pan.  EQ and compressor have no

@@ -10,7 +10,8 @@
 #include <stdint.h>
 
 #define MX_CHANNELS 8
-#define MX_MIXES 7     // 0 = main (outs 1+2), 1..6 = aux 1..6 (outs 3..8)
+#define MX_MIXES 8     // mix m drives out m+1, except that by default mix 0
+                       // (Main) drives outs 1 and 2 and mix 1 is unused
 #define MX_OUTPUTS 8
 #define MX_SCOPE_FRAMES 4096   // recent samples kept per source for spectra
 #define MX_MAX_DELAY_MS 250    // per-output delay, for lining up with distant speakers
@@ -77,6 +78,9 @@ void mx_engine_set_mix_delay(mx_engine *e, int mix, float ms);
 // jacks (see jammer_link.h).  Everything downstream, recording included,
 // sees Jammer there.  False if the shared memory couldn't be opened.
 bool mx_engine_set_jammer_link(mx_engine *e, bool on);
+// Splits Main into two mono mixes: mix 0 on out 1 and mix 1 on out 2.  Off
+// (the default), mix 0 drives both and mix 1 goes nowhere.
+void mx_engine_set_split_main(mx_engine *e, bool on);
 
 typedef struct {
     float in_peak[MX_CHANNELS];   // linear, before any processing

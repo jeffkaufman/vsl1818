@@ -2,7 +2,7 @@
 // output N cabled to input N.
 //
 // A 1 kHz tone is injected on output 1, so it arrives on input 1.  The mixer
-// sends input 1 only to aux 1 (output 3), which arrives on input 3, and
+// sends input 1 only to aux 3 (output 3), which arrives on input 3, and
 // nothing else is routed, so there is no feedback.  The mixer's own recorder
 // captures the inputs and we compare input 3 to input 1 as processing changes.
 
@@ -98,8 +98,8 @@ int main(int argc, char **argv) {
     if (!mkdtemp(root)) return 2;
 
     mx_engine *e = mx_engine_create();
-    mx_engine_set_send(e, 1, 0, 1);    // in1 -> aux 1 (out 3) at 0 dB
-    mx_engine_set_master(e, 1, 1);
+    mx_engine_set_send(e, 2, 0, 1);    // in1 -> aux 3 (out 3) at 0 dB
+    mx_engine_set_master(e, 2, 1);
     mx_engine_set_post_hook(e, inject, NULL);
     int err = mx_engine_start(e, NULL, 48000, buf);
     if (err) { printf("could not start audio: %d\n", err); return 2; }
@@ -125,7 +125,7 @@ int main(int argc, char **argv) {
 
     s = flat();
     mx_engine_set_channel(e, 0, &s);
-    mx_engine_set_send(e, 1, 0, 0.5f);
+    mx_engine_set_send(e, 2, 0, 0.5f);
     check("send at -6 dB", phase_gain(e, root, "send", NULL) - base, -6.02, 0.3);
 
     mx_engine_set_mute(e, 0, true);

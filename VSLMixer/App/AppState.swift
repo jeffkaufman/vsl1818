@@ -319,6 +319,7 @@ final class AppState {
     private func pushAll() {
         let linkFailed = !mx_engine_set_jammer_link(engine, session.jammerLink == true)
         if linkFailed != jammerLinkFailed { jammerLinkFailed = linkFailed }
+        mx_engine_set_split_main(engine, session.splitMain == true)
         for (c, ch) in session.channels.enumerated() {
             var s = ch.engineSettings
             mx_engine_set_channel(engine, Int32(c), &s)
@@ -471,10 +472,10 @@ final class AppState {
             incoming = MixerScene(channels: Session.initial.channels, mixes: Session.initial.mixes)
         } else {
             guard let data = try? Data(contentsOf: Self.sceneURL(name)),
-                  var scene = try? JSONDecoder().decode(MixerScene.self, from: data),
-                  scene.channels.count == channelCount, scene.mixes.count == mixCount else { return }
-            FaderScale.migrate(&scene.mixes, from: scene.faderTaper)
+                  var scene = try? JSONDecoder().decode(MixerScene.self, from: data) else { return }
             Mix.migrateNames(&scene.mixes, from: scene.auxNames)
+            guard scene.channels.count == channelCount, scene.mixes.count == mixCount else { return }
+            FaderScale.migrate(&scene.mixes, from: scene.faderTaper)
             incoming = scene
         }
         // Read first, then save: loading Previous swaps it with the current board.
@@ -501,13 +502,13 @@ final class AppState {
 
     private static func loadSession() -> Session? {
         guard let data = try? Data(contentsOf: stateURL),
-              var s = try? JSONDecoder().decode(Session.self, from: data),
-              s.channels.count == channelCount, s.mixes.count == mixCount,
+              var s = try? JSONDecoder().decode(Session.self, from: data) else { return nil }
+        Mix.migrateNames(&s.mixes, from: s.auxNames)
+        s.auxNames = Mix.currentAuxNames
+        guard s.channels.count == channelCount, s.mixes.count == mixCount,
               s.mixes.allSatisfy({ $0.sends.count == channelCount }) else { return nil }
         FaderScale.migrate(&s.mixes, from: s.faderTaper)
         s.faderTaper = FaderScale.currentTaper
-        Mix.migrateNames(&s.mixes, from: s.auxNames)
-        s.auxNames = Mix.currentAuxNames
         return s
     }
 

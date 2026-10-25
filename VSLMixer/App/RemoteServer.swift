@@ -17,7 +17,10 @@ import Network
 ///     {"t":"channel","ch":C,"set":{"midDb":3,...}}   board only; see ChannelSettings.limits
 ///     {"t":"reset","ch":C,"what":"eq"|"comp"}        board only
 ///   mixer → phone
-///     {"t":"state",...}   everything a page draws; sent on connect and on every change
+///     {"t":"state",...}   everything a page draws; sent on connect and on every change.
+///                         Mix M drives out M+1; each mix's "use" is "main",
+///                         "aux" (a musician can take it) or "none" (Aux 2
+///                         while Main drives both outs 1 and 2).
 ///     {"t":"m",...}       meters, 15 times a second
 ///     {"t":"denied"}      wrong passcode
 @MainActor
@@ -216,7 +219,7 @@ final class RemoteServer {
     private func allowed(_ c: Client, mix: Int) -> Bool {
         switch c.role {
         case .board: return true
-        case .aux(let m): return m == mix
+        case .aux(let m): return m == mix && app.session.isAux(m)
         default: return false
         }
     }
@@ -240,7 +243,7 @@ final class RemoteServer {
                 }
                 c.role = .board
             case "aux":
-                guard let m = int("mix"), (1..<mixCount).contains(m) else { c.role = .viewer; break }
+                guard let m = int("mix"), app.session.isAux(m) else { c.role = .viewer; break }
                 c.role = .aux(m)
             default:
                 c.role = .viewer
@@ -342,7 +345,8 @@ final class RemoteServer {
             return d
         }
         let mixes: [[String: Any]] = s.mixes.enumerated().map { m, mix in
-            ["name": mix.name, "outs": Session.jacks(ofMix: m, name: mix.name),
+            ["name": mix.name, "outs": s.jacks(ofMix: m),
+             "use": !s.shownMixes.contains(m) ? "none" : s.isAux(m) ? "aux" : "main",
              "sends": mix.sends.map(r4), "master": r4(mix.master),
              "ground": hex(Theme.mixHex[m].ground), "ink": hex(Theme.mixHex[m].ink)]
         }

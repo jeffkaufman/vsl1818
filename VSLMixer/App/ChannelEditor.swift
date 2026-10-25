@@ -22,7 +22,7 @@ struct ChannelEditorView: View {
                 .buttonStyle(.plain)
                 .keyboardShortcut(.escape, modifiers: [])
                 VStack(alignment: .leading, spacing: 1 * k) {
-                    Text(Session.jacks(of: strip, name: app.session[name: strip]) + " ").font(.system(size: 12 * k)).foregroundStyle(Theme.secondary)
+                    Text(app.session.jacks(of: strip) + " ").font(.system(size: 12 * k)).foregroundStyle(Theme.secondary)
                     EditableName(text: Binding(get: { app.session[name: strip] },
                                                set: { app.session[name: strip] = $0 }), size: 20)
                 }

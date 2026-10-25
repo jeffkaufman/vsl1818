@@ -202,14 +202,20 @@ struct Mix: Codable, Equatable {
     static let maxDelayMs = Double(MX_MAX_DELAY_MS)
     static let feetPerMs = 1.125   // speed of sound at about 20 °C
 
-    /// Auxes are named for their output jack ("Aux 3" drives out 3).  Saves
-    /// from before that (auxNames nil) numbered them 1–6, so default names
-    /// are renumbered; names someone typed are left alone.
-    static let currentAuxNames = 2
+    /// Brings mixes saved by older versions up to date.  Before version 2,
+    /// auxes were numbered 1–6 rather than for their output jack, so default
+    /// names are renumbered (names someone typed are left alone).  Before
+    /// version 3 there were seven mixes, without Aux 2, so it's added.
+    static let currentAuxNames = 3
     static func migrateNames(_ mixes: inout [Mix], from version: Int?) {
-        guard version == nil else { return }
-        for m in mixes.indices where m > 0 && mixes[m].name == "Aux \(m)" {
-            mixes[m].name = "Aux \(m + 2)"
+        if version == nil {
+            for m in mixes.indices where m > 0 && mixes[m].name == "Aux \(m)" {
+                mixes[m].name = "Aux \(m + 2)"
+            }
+        }
+        if mixes.count == mixCount - 1 {
+            mixes.insert(Mix(name: "Aux 2", sends: Array(repeating: 0, count: channelCount),
+                             master: FaderScale.unity), at: 1)
         }
     }
 
@@ -234,10 +240,12 @@ enum Strip: Hashable {
     case output(Int)
 
     /// The next input or output, wrapping around, for Tab between names.
-    func neighbor(backward: Bool) -> Strip {
+    func neighbor(backward: Bool, in session: Session) -> Strip {
         switch self {
-        case .input(let c): .input((c + (backward ? channelCount - 1 : 1)) % channelCount)
-        case .output(let m): .output((m + (backward ? mixCount - 1 : 1)) % mixCount)
+        case .input(let c): return .input((c + (backward ? channelCount - 1 : 1)) % channelCount)
+        case .output(let m):
+            let shown = session.shownMixes, i = shown.firstIndex(of: m) ?? 0
+            return .output(shown[(i + (backward ? shown.count - 1 : 1)) % shown.count])
         }
     }
 
@@ -271,13 +279,17 @@ struct Session: Codable, Equatable {
     /// (Engine/jammer_link.h).  nil counts as off.
     var jammerLink: Bool?
 
+    /// Outs 1 and 2 are two mono mixes, Aux 1 and Aux 2, rather than Main on
+    /// both.  nil counts as off.
+    var splitMain: Bool?
+
     static var initial: Session {
         // Everything starts pulled down so a fresh install never surprises
         // anyone with sound (or feedback) through the PA.
         Session(
             channels: (1...channelCount).map { ChannelSettings(name: "Input \($0)") },
             mixes: (0..<mixCount).map { m in
-                Mix(name: m == 0 ? "Main" : "Aux \(m + 2)",
+                Mix(name: m == 0 ? "Main" : "Aux \(m + 1)",
                     sends: Array(repeating: 0, count: channelCount),
                     master: FaderScale.unity)
             })
@@ -313,23 +325,34 @@ struct Session: Codable, Equatable {
         }
     }
 
+    /// The mixes in use, in order.  Mix m drives out m + 1, except that
+    /// unless Main is split, mix 0 drives outs 1 and 2 and mix 1 is unused.
+    var shownMixes: [Int] { splitMain == true ? Array(0..<mixCount) : [0] + Array(2..<mixCount) }
+
+    /// A mix a musician can take over from a phone: anything shown but Main.
+    func isAux(_ m: Int) -> Bool { shownMixes.contains(m) && (m > 0 || splitMain == true) }
+
+    static func defaultName(ofMix m: Int, split: Bool) -> String {
+        m == 0 && !split ? "Main" : "Aux \(m + 1)"
+    }
+
     /// "In 3", "Out 1–2"; empty for an aux whose name already says it.
-    static func jacks(of s: Strip, name: String) -> String {
+    func jacks(of s: Strip) -> String {
         switch s {
         case .input(let c): "In \(c + 1)"
-        case .output(let m): jacks(ofMix: m, name: name)
+        case .output(let m): jacks(ofMix: m)
         }
     }
 
     /// The jack label to show under or over a mix's name: "Aux 5" doesn't
     /// need "Out 5", but "Fiddle" does.
-    static func jacks(ofMix m: Int, name: String) -> String {
-        m > 0 && name == "Aux \(m + 2)" ? "" : outputs(ofMix: m)
+    func jacks(ofMix m: Int) -> String {
+        isAux(m) && mixes[m].name == Self.defaultName(ofMix: m, split: true) ? "" : outputs(ofMix: m)
     }
 
     /// Which output jacks a mix drives.
-    static func outputs(ofMix m: Int) -> String {
-        m == 0 ? "Out 1–2" : "Out \(m + 2)"
+    func outputs(ofMix m: Int) -> String {
+        m == 0 && splitMain != true ? "Out 1–2" : "Out \(m + 1)"
     }
 }
 

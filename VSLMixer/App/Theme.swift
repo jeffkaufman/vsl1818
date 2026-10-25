@@ -16,12 +16,13 @@ struct MixTheme {
 }
 
 enum Theme {
-    // Main is grey and each aux has its own color at the same perceived
+    // Main (or Aux 1, when it's split) is grey and each aux has its own color at the same perceived
     // lightness (OKLCH L 0.33, chroma 0.045), so none stands out or recedes.  Only the parts of the
     // window that belong to one output take its color, so it's always obvious
     // which output the faders drive and that mute and processing don't vary.
     static let mixHex: [(ground: UInt32, ink: UInt32)] = [
         (0x34363C, 0xFFFFFF),
+        (0x3B3619, 0xD3BF46),   // Aux 2, only when Main is split
         (0x26374D, 0x7FB2FF),
         (0x253D2A, 0x5BD495),
         (0x3A314A, 0xBE9BFF),
@@ -269,7 +270,7 @@ struct EditableName: View {
     var body: some View {
         if editing {
             NameField(initial: text, size: size, weight: weight,
-                      onTab: strip.map { s in { app.editingName = s.neighbor(backward: $0) } }) { new in
+                      onTab: strip.map { s in { app.editingName = s.neighbor(backward: $0, in: app.session) } }) { new in
                 if let new { text = new }
                 setEditing(false)
             }

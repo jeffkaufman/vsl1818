@@ -3,7 +3,7 @@
 //
 // Screens, chosen by the URL hash:
 //   #               pick your mix
-//   #aux/N          a musician's own aux: one fader per input plus the aux master
+//   #aux/N          a musician's own aux (mix N, on out N+1): one fader per input plus the aux master
 //   #board/mix/N    whole board (passcode): any output's faders, plus mutes
 //   #board/ch/C/eq  one channel's EQ (or /comp for its compressor)
 'use strict';
@@ -176,7 +176,8 @@ function onState(next) {
       else if (kind === 'fx' && next.inputs[a].fx && S.inputs[a].fx) next.inputs[a].fx = S.inputs[a].fx;
     }
   }
-  const structureChanged = !S || S.board !== next.board;
+  const uses = (st) => st.mixes.map((m) => m.use).join();
+  const structureChanged = !S || S.board !== next.board || uses(S) !== uses(next);
   S = next;
   if (next.board) { denied = false; unlocking = false; }
   else if (unlocking && !denied) { /* still waiting on the passcode reply */ }
@@ -207,14 +208,14 @@ function route() {
   const parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
   if (parts[0] === 'aux') {
     const mix = Number(parts[1]);
-    if (mix >= 1 && mix <= 6) return { kind: 'aux', mix };
+    if (mix >= 0 && mix <= 7) return { kind: 'aux', mix };
   }
   if (parts[0] === 'board') {
     if (parts[1] === 'ch' && parts[2] != null) {
       return { kind: 'channel', ch: clamp(Number(parts[2]) || 0, 0, 7), tab: parts[3] === 'comp' ? 'comp' : 'eq' };
     }
     const mix = parts[1] === 'mix' ? Number(parts[2]) : Number(store.get(LAST_MIX_KEY));
-    return { kind: 'board', mix: clamp(mix || 0, 0, 6) };
+    return { kind: 'board', mix: clamp(mix || 0, 0, 7) };
   }
   return { kind: 'landing' };
 }
@@ -230,6 +231,9 @@ function render() {
     return;
   }
   const r = route();
+  // Aux 2 only exists while Main is split, and Main is never anyone's aux.
+  if (r.kind === 'aux' && S.mixes[r.mix].use !== 'aux') r.kind = 'landing';
+  if (r.kind === 'board' && S.mixes[r.mix].use === 'none') r.mix = 0;
   const needsBoard = r.kind === 'board' || r.kind === 'channel';
   if (needsBoard && !S.board) screen = unlocking ? waitingScreen() : passcodeScreen();
   else if (r.kind === 'aux') screen = auxScreen(r.mix);
@@ -393,11 +397,12 @@ function landingScreen() {
     el,
     update() {
       const last = Number(store.get(LAST_AUX_KEY));
-      grid.replaceChildren(...S.mixes.slice(1).map((m, i) => {
-        const a = h('a', { class: 'mixbtn', href: `#aux/${i + 1}` },
+      grid.replaceChildren(...S.mixes.flatMap((m, i) => {
+        if (m.use !== 'aux') return [];
+        const a = h('a', { class: 'mixbtn', href: `#aux/${i}` },
           h('b', {}, m.name),
           // On the right of the outputs line, so marking a mix doesn't move anything.
-          h('div', { class: 'sub' }, h('span', {}, m.outs), last === i + 1 ? h('em', {}, 'Last used') : null));
+          h('div', { class: 'sub' }, h('span', {}, m.outs), last === i ? h('em', {}, 'Last used') : null));
         a.style.setProperty('--ground', m.ground);
         a.style.setProperty('--ink', m.ink);
         return a;
@@ -451,14 +456,15 @@ function boardScreen(mix) {
   return {
     el,
     update() {
-      chips.replaceChildren(...S.mixes.map((m, i) => {
+      chips.replaceChildren(...S.mixes.flatMap((m, i) => {
+        if (m.use === 'none') return [];
         const a = h('a', { class: 'chip', href: `#board/mix/${i}`, 'aria-current': i === mix ? 'page' : null },
           h('b', {}, m.name), h('span', {}, m.outs));
         a.style.setProperty('--chip-ground', m.ground);
         a.style.setProperty('--chip-ink', m.ink);
         return a;
       }));
-      const current = chips.children[mix];
+      const current = chips.querySelector('[aria-current]');
       if (current && current.scrollIntoView) current.scrollIntoView({ block: 'nearest', inline: 'nearest' });
       rows.forEach((r) => r.update());
       master.update();

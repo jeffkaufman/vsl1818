@@ -102,7 +102,7 @@ def protocol_tests(code):
     viewer = Phone(role="viewer")
     s = viewer.state
     check("viewer gets state", s is not None and s["t"] == "state")
-    check("8 inputs, 7 mixes", len(s["inputs"]) == 8 and len(s["mixes"]) == 7)
+    check("8 inputs, 8 mixes", len(s["inputs"]) == 8 and len(s["mixes"]) == 8)
     check("viewer sees no processing", not s["board"] and "fx" not in s["inputs"][0])
     check("taper starts with off point", s["taper"][0][1] == -20)
     viewer.pump(0.5)
@@ -134,6 +134,18 @@ def protocol_tests(code):
     aux.ws.send("not json")
     aux.pump(0.3)
     check("positions are clamped to 0…1", aux.state["mixes"][2]["sends"][3] == 1.0)
+
+    uses = [m["use"] for m in aux.state["mixes"]]
+    if uses[1] == "none":   # Main drives outs 1 and 2, so there's no Aux 2
+        check("main paired: mix uses", uses == ["main", "none"] + ["aux"] * 6, uses)
+        ghost = Phone(role="aux", mix=1)
+        before = ghost.state["mixes"][1]["sends"][3]
+        ghost.send(t="send", mix=1, ch=3, pos=0.123)
+        ghost.pump(0.3)
+        check("unused Aux 2 can't be taken", ghost.state["mixes"][1]["sends"][3] == before)
+        ghost.close()
+    else:
+        check("main split: mix uses", uses == ["aux"] * 8, uses)
 
     wrong = Phone(role="board", code="nope")
     check("wrong passcode is denied", wrong.denied and not wrong.state["board"])
@@ -190,7 +202,7 @@ def ui_tests(code, shots):
             check(f"{name}: landing lists 6 auxes", page.locator(".mixbtn").count() == 6)
             shot("landing")
 
-            page.goto(HTTP + "/#aux/1")
+            page.goto(HTTP + "/#aux/2")
             page.wait_for_selector(".row .fader")
             page.wait_for_timeout(400)
             check(f"{name}: aux page has 8 inputs + master",
@@ -200,8 +212,8 @@ def ui_tests(code, shots):
             shot("aux")
 
             # Drag the first fader right and check the mixer heard it.
-            spy = Phone(role="aux", mix=1)
-            start = spy.state["mixes"][1]["sends"][0]
+            spy = Phone(role="aux", mix=2)
+            start = spy.state["mixes"][2]["sends"][0]
             box = page.locator(".list .row .fader").first.bounding_box()
             x0, y0 = box["x"] + 30, box["y"] + box["height"] / 2
             page.mouse.move(x0, y0)
@@ -211,21 +223,21 @@ def ui_tests(code, shots):
                 page.wait_for_timeout(16)
             page.mouse.up()
             spy.pump(0.5)
-            moved = spy.state["mixes"][1]["sends"][0]
+            moved = spy.state["mixes"][2]["sends"][0]
             check(f"{name}: dragging a fader moves the send", moved > start + 0.15, f"{start} -> {moved}")
             # A tap on the track mustn't jump the level.
             page.mouse.click(box["x"] + box["width"] - 10, y0)
             spy.pump(0.4)
-            check(f"{name}: a tap doesn't jump the fader", abs(spy.state["mixes"][1]["sends"][0] - moved) < 1e-3)
+            check(f"{name}: a tap doesn't jump the fader", abs(spy.state["mixes"][2]["sends"][0] - moved) < 1e-3)
             # Steps are whole dB.
-            spy.send(t="send", mix=1, ch=1, pos=0)
+            spy.send(t="send", mix=2, ch=1, pos=0)
             spy.pump(0.3)
             page.wait_for_timeout(200)
             page.locator(".list .row").nth(1).locator(".step").last.click()
             page.locator(".list .row").nth(1).locator(".step").last.click()
             spy.pump(0.4)
             db = page.locator(".list .row").nth(1).locator(".db").inner_text()
-            check(f"{name}: + from −∞ steps to −29 dB", db == "−29.0 dB", db)
+            check(f"{name}: + + from −∞ steps to −19 dB", db == "−19.0 dB", db)
             spy.close()
 
             page.goto(HTTP + "/#board")
@@ -242,9 +254,9 @@ def ui_tests(code, shots):
             check(f"{name}: board shows 7 outputs", page.locator(".chip").count() == 7)
             check(f"{name}: board rows have mute buttons", page.locator(".list .mutebtn").count() == 8)
             shot("board")
-            page.locator(".chip").nth(3).click()
+            page.locator(".chip").nth(3).click()   # Main, Aux 3, Aux 4, Aux 5 (mix 4)
             page.wait_for_timeout(300)
-            check(f"{name}: picking an output changes the URL", page.url.endswith("#board/mix/3"))
+            check(f"{name}: picking an output changes the URL", page.url.endswith("#board/mix/4"))
             shot("board-aux3")
 
             page.locator(".list a.name").first.click()

@@ -90,10 +90,18 @@ int main(void) {
     check("in1 -> main, out 1 (dBFS)", run_tone(e, 0, 1000, 0.5, 0.5, 0), ref, 0.05);
     check("in1 -> main, out 2 (dBFS)", run_tone(e, 0, 1000, 0.5, 0.5, 1), ref, 0.05);
     check("nothing on out 3 (dBFS)", run_tone(e, 0, 1000, 0.5, 0.5, 2), -240, 1);
-    mx_engine_set_send(e, 3, 0, 0.5);
-    mx_engine_set_master(e, 3, 1);
-    check("in1 -> aux 3 at -6 dB, out 5 (dBFS)", run_tone(e, 0, 1000, 0.5, 0.5, 4), ref - 6.02, 0.05);
+    mx_engine_set_send(e, 4, 0, 0.5);
+    mx_engine_set_master(e, 4, 1);
+    check("in1 -> aux 5 at -6 dB, out 5 (dBFS)", run_tone(e, 0, 1000, 0.5, 0.5, 4), ref - 6.02, 0.05);
     check("channels past 8 untouched (dBFS)", run_tone(e, 0, 1000, 0.5, 0.5, 9), -240, 1);
+    mx_engine_set_send(e, 1, 0, 0.5);
+    mx_engine_set_master(e, 1, 1);
+    check("aux 2 unused while main is paired (dBFS)", run_tone(e, 0, 1000, 0.5, 0.5, 1), ref, 0.05);
+    mx_engine_set_split_main(e, true);
+    check("split: aux 1 on out 1 (dBFS)", run_tone(e, 0, 1000, 0.5, 0.5, 0), ref, 0.05);
+    check("split: aux 2 on out 2 (dBFS)", run_tone(e, 0, 1000, 0.5, 0.5, 1), ref - 6.02, 0.05);
+    mx_engine_set_split_main(e, false);
+    mx_engine_set_send(e, 1, 0, 0);
 
     printf("Processing\n");
     s.eq_on = true; s.mid_db = 6; s.mid_hz = 1000;
@@ -128,8 +136,8 @@ int main(void) {
     mx_engine_set_channel(e, 0, &s);
     mx_engine_set_mute(e, 0, false);
     s.eq_on = true; s.mid_db = -6; s.mid_hz = 1000;
-    mx_engine_set_mix_processing(e, 3, &s);
-    check("aux 3 EQ -6 at 1 kHz (dBFS)", run_tone(e, 0, 1000, 0.5, 0.5, 4), ref - 6.02 - 6, 0.1);
+    mx_engine_set_mix_processing(e, 4, &s);
+    check("aux 5 EQ -6 at 1 kHz (dBFS)", run_tone(e, 0, 1000, 0.5, 0.5, 4), ref - 6.02 - 6, 0.1);
     check("main unaffected by aux EQ (dBFS)", run_tone(e, 0, 1000, 0.5, 0.5, 0), ref, 0.05);
     s = flat(); s.comp_on = true; s.comp_threshold_db = -20; s.comp_ratio = 4;
     s.comp_attack_ms = 1; s.comp_release_ms = 100;
@@ -144,8 +152,8 @@ int main(void) {
     spk = 0;
     for (int i = 0; i < MX_SCOPE_FRAMES; i++) spk = fmax(spk, fabs(scope[i]));
     check("main scope is before its processing (dBFS)", 20 * log10(spk), -10, 0.1);
-    mx_engine_set_mix_mute(e, 3, true);
-    check("muted aux 3 (dBFS)", run_tone(e, 0, 1000, 0.5, 0.5, 4), -240, 1);
+    mx_engine_set_mix_mute(e, 4, true);
+    check("muted aux 5 (dBFS)", run_tone(e, 0, 1000, 0.5, 0.5, 4), -240, 1);
     check("main still plays (dBFS)", run_tone(e, 0, 1000, pow(10, -0.5), 1.0, 0), -17.5, 0.5);
 
     printf("Output delay\n");
