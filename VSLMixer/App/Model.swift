@@ -202,6 +202,17 @@ struct Mix: Codable, Equatable {
     static let maxDelayMs = Double(MX_MAX_DELAY_MS)
     static let feetPerMs = 1.125   // speed of sound at about 20 °C
 
+    /// Auxes are named for their output jack ("Aux 3" drives out 3).  Saves
+    /// from before that (auxNames nil) numbered them 1–6, so default names
+    /// are renumbered; names someone typed are left alone.
+    static let currentAuxNames = 2
+    static func migrateNames(_ mixes: inout [Mix], from version: Int?) {
+        guard version == nil else { return }
+        for m in mixes.indices where m > 0 && mixes[m].name == "Aux \(m)" {
+            mixes[m].name = "Aux \(m + 2)"
+        }
+    }
+
     private enum CodingKeys: String, CodingKey { case name, sends, master, processing, delayMs }
 }
 
@@ -246,6 +257,7 @@ struct Session: Codable, Equatable {
     var sampleRate = 48000.0
     var bufferFrames = 32
     var faderTaper: Int? = FaderScale.currentTaper   // missing in older saves
+    var auxNames: Int? = Mix.currentAuxNames          // missing in older saves
 
     // Phone control.  Optional so sessions saved before it existed still load.
     // Off until someone turns it on (nil counts as off), so macOS only asks
@@ -265,7 +277,7 @@ struct Session: Codable, Equatable {
         Session(
             channels: (1...channelCount).map { ChannelSettings(name: "Input \($0)") },
             mixes: (0..<mixCount).map { m in
-                Mix(name: m == 0 ? "Main" : "Aux \(m)",
+                Mix(name: m == 0 ? "Main" : "Aux \(m + 2)",
                     sends: Array(repeating: 0, count: channelCount),
                     master: FaderScale.unity)
             })
@@ -321,4 +333,5 @@ struct MixerScene: Codable {
     var channels: [ChannelSettings]
     var mixes: [Mix]
     var faderTaper: Int? = FaderScale.currentTaper
+    var auxNames: Int? = Mix.currentAuxNames
 }

@@ -83,7 +83,7 @@ final class AppState {
     var recordingSecondsLeft: Double?
     var showPhones = false
     var remoteStatus = RemoteServer.Status.off
-    var remoteConnections: [String] = []   // e.g. "Aux 2 (Fiddle)", "Whole board"
+    var remoteConnections: [String] = []   // e.g. "Aux 4 (Fiddle)", "Whole board"
     var now = Date()
     let meters = Meters()
     let spectrum = Spectrum()
@@ -474,6 +474,7 @@ final class AppState {
                   var scene = try? JSONDecoder().decode(MixerScene.self, from: data),
                   scene.channels.count == channelCount, scene.mixes.count == mixCount else { return }
             FaderScale.migrate(&scene.mixes, from: scene.faderTaper)
+            Mix.migrateNames(&scene.mixes, from: scene.auxNames)
             incoming = scene
         }
         // Read first, then save: loading Previous swaps it with the current board.
@@ -505,6 +506,8 @@ final class AppState {
               s.mixes.allSatisfy({ $0.sends.count == channelCount }) else { return nil }
         FaderScale.migrate(&s.mixes, from: s.faderTaper)
         s.faderTaper = FaderScale.currentTaper
+        Mix.migrateNames(&s.mixes, from: s.auxNames)
+        s.auxNames = Mix.currentAuxNames
         return s
     }
 

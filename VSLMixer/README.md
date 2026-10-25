@@ -128,6 +128,10 @@ touches the Swift runtime.
 - Scenes live in `Application Support/VSL Mixer/Scenes/*.json`.  "Blank
   board" is built in (defaults, including names).  Every load first saves the
   current board as "Previous", so a load can be undone.
+- Auxes are named for the jack they drive, Aux 3–8 on outs 3–8, so no one
+  has to remember that "Aux 1" is out 3.  Internally (engine, protocol,
+  `#aux/N` links) they're still mixes 1–6.  `Mix.migrateNames` renumbers
+  default names in older sessions and scenes (the `auxNames` version).
 - The layout is designed at 1440×900 and scales up with the window to 1.8×
   (`uiScale` environment value, `uiFont`, and `* k` on fixed sizes).
 - UI rules from the owner: each output has its own color at equal lightness
@@ -254,7 +258,7 @@ it runs, and restores everything afterwards.  If a run dies partway, the next
 run restores the snapshot first.
 
 The hardware test needs each output N cabled to input N.  It injects a tone on
-out 1, has the mixer route in 1 only to Aux 1 (out 3), and uses the app's own
+out 1, has the mixer route in 1 only to Aux 3 (out 3), and uses the app's own
 recorder to compare in 3 with in 1.  That checks gain, EQ, compression, send
 level, mute, recording and dropouts end to end, with no feedback path.
 Knobs were at 12 o'clock when it was written; it measures relative levels, so
