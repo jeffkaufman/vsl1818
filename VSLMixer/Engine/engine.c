@@ -15,6 +15,8 @@
 // Inputs and mixes share the processing code: strip c < MX_CHANNELS is an
 // input, strip MX_CHANNELS + m is mix m.
 #define STRIPS (MX_CHANNELS + MX_MIXES)
+#define DELAY_FRAMES (1 << 15)     // MX_MAX_DELAY_MS at up to 96 kHz
+#define DELAY_XFADE 256            // samples to crossfade when a delay changes
 
 // ---------------------------------------------------------------- filters
 
@@ -108,6 +110,33 @@ typedef struct {
     float mute_gain;    // smoothed
 } channel_rt;
 
+typedef struct {
+    float buf[DELAY_FRAMES];
+    uint32_t w;
+    int cur, next;  // delay in samples, and where a crossfade is heading
+    int xf;         // crossfade samples remaining
+} delay_line;
+
+// Writes x and returns the sample `target` frames ago.  A change of target
+// crossfades between the old and new taps so it doesn't click; one that
+// arrives mid-crossfade waits for it to finish.  At 0 it's passthrough.
+static inline float delay_run(delay_line *d, float x, int target) {
+    d->buf[d->w & (DELAY_FRAMES - 1)] = x;
+    if (d->xf == 0 && target != d->cur) {
+        d->next = target;
+        d->xf = DELAY_XFADE;
+    }
+    float y = d->buf[(d->w - d->cur) & (DELAY_FRAMES - 1)];
+    if (d->xf > 0) {
+        float t = 1.f - (float)d->xf / DELAY_XFADE;
+        float b = d->buf[(d->w - d->next) & (DELAY_FRAMES - 1)];
+        y += t * (b - y);
+        if (--d->xf == 0) d->cur = d->next;
+    }
+    d->w++;
+    return y;
+}
+
 struct mx_engine {
     // ---- written by the UI thread, read by the IO thread
     mx_channel_settings pending[STRIPS];
@@ -115,6 +144,7 @@ struct mx_engine {
     _Atomic float send[MX_MIXES][MX_CHANNELS];
     _Atomic float master[MX_MIXES];
     _Atomic bool muted[STRIPS];
+    _Atomic float delay_ms[MX_MIXES];
 
     // ---- IO thread only
     double fs;
@@ -123,6 +153,7 @@ struct mx_engine {
     channel_rt ch[STRIPS];
     float send_g[MX_MIXES][MX_CHANNELS];
     float master_g[MX_MIXES];
+    delay_line delay[MX_MIXES];
     double last_in_time;
     float in_scratch[MAX_FRAMES * MX_CHANNELS];
     float out_scratch[MAX_FRAMES * MX_OUTPUTS];
@@ -193,6 +224,14 @@ static void apply_settings(mx_engine *e, int c, const mx_channel_settings *s) {
     r->s = *s;
 }
 
+static int delay_frames(mx_engine *e, int m) {
+    double ms = atomic_load_explicit(&e->delay_ms[m], memory_order_relaxed);
+    if (!(ms > 0)) return 0;
+    if (ms > MX_MAX_DELAY_MS) ms = MX_MAX_DELAY_MS;
+    int n = (int)lround(ms * e->fs / 1000);
+    return n < DELAY_FRAMES - 1 ? n : DELAY_FRAMES - 1;
+}
+
 static void reset_rt(mx_engine *e, double fs) {
     e->fs = fs;
     e->smooth = (float)(1 - exp(-1.0 / (0.005 * fs)));  // ~5 ms glide
@@ -205,6 +244,8 @@ static void reset_rt(mx_engine *e, double fs) {
         e->ch[c].mute_gain = atomic_load(&e->muted[c]) ? 0 : 1;
     }
     for (int m = 0; m < MX_MIXES; m++) {
+        memset(&e->delay[m], 0, sizeof e->delay[m]);
+        e->delay[m].cur = delay_frames(e, m);
         e->master_g[m] = atomic_load(&e->master[m]);
         for (int c = 0; c < MX_CHANNELS; c++) e->send_g[m][c] = atomic_load(&e->send[m][c]);
     }
@@ -256,6 +297,9 @@ void mx_engine_set_mute(mx_engine *e, int c, bool muted) {
 }
 void mx_engine_set_mix_mute(mx_engine *e, int m, bool muted) {
     if (m >= 0 && m < MX_MIXES) atomic_store(&e->muted[MX_CHANNELS + m], muted);
+}
+void mx_engine_set_mix_delay(mx_engine *e, int m, float ms) {
+    if (m >= 0 && m < MX_MIXES) atomic_store(&e->delay_ms[m], ms);
 }
 
 void mx_engine_set_post_hook(mx_engine *e, mx_post_hook hook, void *ctx) {
@@ -318,10 +362,12 @@ void mx_engine_process(mx_engine *e, const float *in, int in_stride, float *out,
     pick_up_settings(e);
 
     float mute_t[STRIPS], send_t[MX_MIXES][MX_CHANNELS], master_t[MX_MIXES];
+    int delay_t[MX_MIXES];
     for (int c = 0; c < STRIPS; c++)
         mute_t[c] = atomic_load_explicit(&e->muted[c], memory_order_relaxed) ? 0.f : 1.f;
     for (int m = 0; m < MX_MIXES; m++) {
         master_t[m] = atomic_load_explicit(&e->master[m], memory_order_relaxed);
+        delay_t[m] = delay_frames(e, m);
         for (int c = 0; c < MX_CHANNELS; c++)
             send_t[m][c] = atomic_load_explicit(&e->send[m][c], memory_order_relaxed);
     }
@@ -364,6 +410,7 @@ void mx_engine_process(mx_engine *e, const float *in, int in_stride, float *out,
             acc *= r->mute_gain;
             e->master_g[m] += k * (master_t[m] - e->master_g[m]);
             acc *= e->master_g[m];
+            acc = delay_run(&e->delay[m], acc, delay_t[m]);
             float a = fabsf(acc);
             if (a > mixpk[m]) mixpk[m] = a;
             if (m == 0) {

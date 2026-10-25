@@ -45,6 +45,24 @@ static double run_tone(mx_engine *e, int ch, double hz, double amp, double secs,
     return 20 * log10(peak + 1e-12);
 }
 
+// Let any delay crossfade settle, then send one impulse into input 1 and
+// return how many samples later the biggest output sample appears on `out`.
+static int impulse_lag(mx_engine *e, int out) {
+    float in[64 * IN_CH], o[64 * OUT_CH];
+    memset(in, 0, sizeof in);
+    for (int i = 0; i < 20; i++) mx_engine_process(e, in, IN_CH, o, OUT_CH, 64);
+    int best = -1, n = 0;
+    double peak = 0;
+    for (int blk = 0; blk < FS / 2 / 64; blk++) {
+        memset(in, 0, sizeof in);
+        if (blk == 0) in[0] = 1;
+        mx_engine_process(e, in, IN_CH, o, OUT_CH, 64);
+        for (int i = 0; i < 64; i++, n++)
+            if (fabs(o[i * OUT_CH + out]) > peak) { peak = fabs(o[i * OUT_CH + out]); best = n; }
+    }
+    return best;
+}
+
 int main(void) {
     printf("EQ curve math\n");
     mx_channel_settings s = flat();
@@ -129,6 +147,17 @@ int main(void) {
     mx_engine_set_mix_mute(e, 3, true);
     check("muted aux 3 (dBFS)", run_tone(e, 0, 1000, 0.5, 0.5, 4), -240, 1);
     check("main still plays (dBFS)", run_tone(e, 0, 1000, pow(10, -0.5), 1.0, 0), -17.5, 0.5);
+
+    printf("Output delay\n");
+    s = flat();
+    mx_engine_set_mix_processing(e, 0, &s);
+    check("no delay: impulse on the same sample", impulse_lag(e, 0), 0, 0);
+    mx_engine_set_mix_delay(e, 0, 10);
+    check("10 ms delay at 48 kHz (samples)", impulse_lag(e, 0), 480, 0);
+    mx_engine_set_mix_delay(e, 0, 1000);
+    check("delay clamps to 250 ms (samples)", impulse_lag(e, 0), 12000, 0);
+    mx_engine_set_mix_delay(e, 0, 0);
+    check("back to no delay (samples)", impulse_lag(e, 0), 0, 0);
     mx_engine_destroy(e);
 
     printf(failures ? "\n%d FAILED\n" : "\nall passed\n", failures);

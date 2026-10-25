@@ -194,8 +194,12 @@ struct Mix: Codable, Equatable {
     // The output's own EQ, compressor and mute, applied before the master.
     // Its name is unused.
     var processing = ChannelSettings(name: "")
+    var delayMs = 0.0   // to line up with speakers further away
 
-    private enum CodingKeys: String, CodingKey { case name, sends, master, processing }
+    static let maxDelayMs = Double(MX_MAX_DELAY_MS)
+    static let feetPerMs = 1.125   // speed of sound at about 20 °C
+
+    private enum CodingKeys: String, CodingKey { case name, sends, master, processing, delayMs }
 }
 
 extension Mix {
@@ -206,6 +210,7 @@ extension Mix {
         sends = try c.decode([Double].self, forKey: .sends)
         master = try c.decode(Double.self, forKey: .master)
         processing = (try? c.decodeIfPresent(ChannelSettings.self, forKey: .processing)) ?? ChannelSettings(name: "")
+        delayMs = (try? c.decodeIfPresent(Double.self, forKey: .delayMs)) ?? 0
     }
 }
 

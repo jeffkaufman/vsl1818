@@ -13,6 +13,7 @@
 #define MX_MIXES 7     // 0 = main (outs 1+2), 1..6 = aux 1..6 (outs 3..8)
 #define MX_OUTPUTS 8
 #define MX_SCOPE_FRAMES 4096   // recent samples kept per source for spectra
+#define MX_MAX_DELAY_MS 250    // per-output delay, for lining up with distant speakers
 
 typedef struct {
     bool hpf_on;
@@ -68,6 +69,8 @@ void mx_engine_set_mute(mx_engine *e, int ch, bool muted);
 // the master gain.
 void mx_engine_set_mix_processing(mx_engine *e, int mix, const mx_channel_settings *s);
 void mx_engine_set_mix_mute(mx_engine *e, int mix, bool muted);
+// Delays a mix's output, after its master.  Changes crossfade over ~5 ms.
+void mx_engine_set_mix_delay(mx_engine *e, int mix, float ms);
 
 typedef struct {
     float in_peak[MX_CHANNELS];   // linear, before any processing

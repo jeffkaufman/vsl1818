@@ -278,6 +278,7 @@ final class AppState {
             var s = mix.processing.engineSettings
             mx_engine_set_mix_processing(engine, Int32(m), &s)
             mx_engine_set_mix_mute(engine, Int32(m), mix.processing.muted)
+            mx_engine_set_mix_delay(engine, Int32(m), Float(mix.delayMs))
             mx_engine_set_master(engine, Int32(m), FaderScale.gain(mix.master))
             for (c, pos) in mix.sends.enumerated() {
                 mx_engine_set_send(engine, Int32(m), Int32(c), FaderScale.gain(pos))

@@ -86,7 +86,10 @@ touches the Swift runtime.
   precision) → feed-forward peak compressor with hard knee → mute → a send to
   each of 7 mixes.  Each mix's sum then gets the same chain (high-pass, EQ,
   compressor, mute) before its master.  Inputs and mixes share the code as
-  "strips".  Main is mono and drives outs 1 and 2; aux N drives out N+2.
+  "strips".  After its master, each mix can be delayed up to 250 ms (to
+  line up with distant speakers; the UI shows ms and feet at 1.125 ft/ms);
+  changes crossfade over 256 samples so they don't click.  Main is mono and
+  drives outs 1 and 2; aux N drives out N+2.
   Outputs 9–18 are silent.
 - Sections that are flat (high-pass at 20 Hz, all EQ gains 0, ratio 1:1 with
   no makeup) are skipped, so they're bit-exact passthrough.

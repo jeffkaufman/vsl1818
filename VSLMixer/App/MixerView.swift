@@ -386,6 +386,7 @@ struct MasterStrip: View {
             MiniCurveButton(label: "Comp", active: fx.compActive, tint: theme.ink,
                             reference: UnityLine(), curve: MiniCompShape(settings: fx),
                             help: "Edit \(name) compressor") { app.route = .comp(.output(mix)) }
+            DelayButton(mix: mix)
             HStack(spacing: 8 * k) {
                 FaderView(value: level, tint: theme.ink, accessibilityName: "\(name) level")
                 MeterBar(db: app.meters.mix[mix])
@@ -401,5 +402,92 @@ struct MasterStrip: View {
         .frame(width: 150 * k)
         .background(RoundedRectangle(cornerRadius: 12 * k).fill(theme.ground))
         .overlay(RoundedRectangle(cornerRadius: 12 * k).stroke(theme.ink, lineWidth: 2))
+    }
+}
+
+/// An output's delay, in ms and feet; click to change it.
+struct DelayButton: View {
+    @Environment(\.uiScale) private var k
+    @Environment(AppState.self) private var app
+    let mix: Int
+    @State private var editing = false
+
+    var body: some View {
+        let ms = app.session.mixes[mix].delayMs
+        let theme = Theme.mixes[mix]
+        Button { editing = true } label: {
+            HStack(spacing: 6 * k) {
+                Text("Delay").font(.system(size: 11 * k)).foregroundStyle(Theme.secondary)
+                    .frame(width: 34 * k, alignment: .leading)
+                Spacer(minLength: 0)
+                if ms > 0 {
+                    VStack(alignment: .trailing, spacing: 0) {
+                        Text(String(format: "%.1f ms", ms))
+                        Text(String(format: "%.1f ft", ms * Mix.feetPerMs)).foregroundStyle(Theme.secondary)
+                    }
+                    .uiFont(11, .semibold, mono: true)
+                    .foregroundStyle(theme.ink)
+                } else {
+                    Text("Off").uiFont(11, .semibold).foregroundStyle(Color.white.opacity(0.35))
+                }
+            }
+            .padding(.horizontal, 7 * k).frame(height: 34 * k)
+            .background(RoundedRectangle(cornerRadius: 8 * k).fill(Color.black.opacity(0.35)))
+            .overlay(RoundedRectangle(cornerRadius: 8 * k).stroke(Theme.control))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Delay \(app.session.mixes[mix].name) to line it up with speakers further away")
+        .accessibilityLabel("\(app.session.mixes[mix].name) delay")
+        .accessibilityValue(ms > 0 ? DelayButton.label(ms) : "off")
+        .popover(isPresented: $editing, arrowEdge: .leading) { DelayEditor(mix: mix) }
+    }
+
+    static func label(_ ms: Double) -> String {
+        String(format: "%.1f ms · %.1f ft", ms, ms * Mix.feetPerMs)
+    }
+}
+
+struct DelayEditor: View {
+    @Environment(AppState.self) private var app
+    let mix: Int
+
+    var body: some View {
+        let delay = Binding(
+            get: { app.session.mixes[mix].delayMs },
+            set: { app.session.mixes[mix].delayMs = min(Mix.maxDelayMs, max(0, ($0 * 10).rounded() / 10)) })
+        let feet = Binding(
+            get: { delay.wrappedValue * Mix.feetPerMs },
+            set: { delay.wrappedValue = $0 / Mix.feetPerMs })
+        VStack(alignment: .leading, spacing: 12) {
+            Text("\(app.session.mixes[mix].name) delay").font(.headline)
+            Text("Delay this output so it arrives with sound from speakers further away. Enter the extra distance in feet, or the time in milliseconds.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+                Button { delay.wrappedValue = (delay.wrappedValue - 1).rounded() } label: { Image(systemName: "minus") }
+                    .accessibilityLabel("1 ms less")
+                Slider(value: delay, in: 0...Mix.maxDelayMs)
+                Button { delay.wrappedValue = (delay.wrappedValue + 1).rounded() } label: { Image(systemName: "plus") }
+                    .accessibilityLabel("1 ms more")
+            }
+            HStack(spacing: 16) {
+                field("ms", value: delay)
+                field("ft", value: feet)
+                Spacer()
+                Button("Off") { delay.wrappedValue = 0 }.disabled(delay.wrappedValue == 0)
+            }
+        }
+        .padding(16)
+        .frame(width: 320)
+    }
+
+    private func field(_ unit: String, value: Binding<Double>) -> some View {
+        HStack(spacing: 4) {
+            TextField(unit, value: value, format: .number.precision(.fractionLength(1)))
+                .multilineTextAlignment(.trailing)
+                .frame(width: 64)
+            Text(unit).foregroundStyle(.secondary)
+        }
     }
 }
