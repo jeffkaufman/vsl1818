@@ -103,8 +103,9 @@ body.offline .dot { background: var(--hot); }
   border: 2px solid var(--ink);
 }
 .mixbtn b { font-size: 19px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mixbtn .sub { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 .mixbtn span { font-size: 13px; color: var(--secondary); }
-.mixbtn em { font-style: normal; font-size: 12px; color: var(--ink); }
+.mixbtn em { font-style: normal; font-size: 12px; color: var(--ink); white-space: nowrap; }
 .boardbtn {
   display: flex; align-items: center; justify-content: space-between;
   margin-top: 22px; min-height: 60px; padding: 10px 16px;

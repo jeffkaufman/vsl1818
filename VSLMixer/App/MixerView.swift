@@ -261,17 +261,18 @@ struct MixButton: View {
     @Environment(\.uiScale) private var k
     @Environment(AppState.self) private var app
     let mix: Int
-    @State private var renaming = false
 
     var body: some View {
         let theme = Theme.mixes[mix], sel = mix == app.selectedMix
         let name = app.session.mixes[mix].name
+        let renaming = app.editingName == .output(mix)
         Group {
             if renaming {
                 VStack(alignment: .leading, spacing: 1 * k) {
-                    NameField(initial: name, size: 14) { new in
+                    NameField(initial: name, size: 14,
+                              onTab: { app.editingName = Strip.output(mix).neighbor(backward: $0) }) { new in
                         if let new { app.session.mixes[mix].name = new }
-                        renaming = false
+                        if app.editingName == .output(mix) { app.editingName = nil }
                     }
                     Text(Session.outputs(ofMix: mix)).uiFont(12).opacity(0.85)
                 }
@@ -293,8 +294,8 @@ struct MixButton: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in renaming = true })
-                .contextMenu { Button("Rename") { renaming = true } }
+                .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in app.editingName = .output(mix) })
+                .contextMenu { Button("Rename") { app.editingName = .output(mix) } }
                 .keyboardShortcut(KeyEquivalent(Character(String(mix + 1))), modifiers: .command)
                 .accessibilityAddTraits(sel ? .isSelected : [])
                 .help("Show \(name) on the faders (⌘\(mix + 1)). Press and hold to rename.")
@@ -325,7 +326,7 @@ struct ChannelStrip: View {
         VStack(alignment: .leading, spacing: 10 * k) {
             VStack(alignment: .leading, spacing: 1 * k) {
                 Text("In \(index + 1)").uiFont(12).foregroundStyle(Theme.secondary)
-                EditableName(text: name, size: 15)
+                EditableName(text: name, size: 15, strip: .input(index))
             }
             MiniCurveButton(label: "EQ", active: ch.eqActive, tint: .white,
                             reference: HorizontalLine(), curve: MiniEQShape(settings: ch),

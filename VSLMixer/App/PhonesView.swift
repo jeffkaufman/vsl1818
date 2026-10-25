@@ -46,32 +46,18 @@ struct PhonesView: View {
 
                     Divider()
 
+                    // One code for everyone: the page opens on a list of mixes,
+                    // plus the whole board behind the passcode.
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("2. Open your mix").font(.headline)
-                        // Columns fit the code plus its white margin; top-aligned so
-                        // the whole-board code's taller caption doesn't push it down.
-                        LazyVGrid(columns: Array(repeating: GridItem(.fixed(QRCode.outerSize), spacing: 20, alignment: .top),
-                                                 count: 4),
-                                  alignment: .leading, spacing: 20) {
-                            ForEach(1..<mixCount, id: \.self) { m in
-                                VStack(spacing: 4) {
-                                    QRCode(text: "\(base)/#aux/\(m)")
-                                    Text(app.session.mixes[m].name).font(.headline)
-                                        .foregroundStyle(Theme.mixes[m].ink)
-                                    Text(Session.outputs(ofMix: m)).font(.caption).foregroundStyle(.secondary)
-                                }
-                            }
-                            VStack(spacing: 4) {
-                                QRCode(text: "\(base)/#board")
-                                Text("Whole board").font(.headline)
-                                HStack(spacing: 6) {
-                                    Text("Passcode \(app.session.remoteCode ?? "")")
-                                        .font(.caption.monospacedDigit().bold())
-                                    Button("New") { app.session.remoteCode = AppState.newPasscode() }
-                                        .controlSize(.small)
-                                        .help("Phones already showing the whole board will need the new passcode")
-                                }
-                            }
+                        Text("2. Open the mixer").font(.headline)
+                        QRCode(text: base)
+                        Text("Then pick your mix.").font(.caption).foregroundStyle(.secondary)
+                        HStack(spacing: 6) {
+                            Text("Whole board passcode \(app.session.remoteCode ?? "")")
+                                .font(.caption.monospacedDigit().bold())
+                            Button("New") { app.session.remoteCode = AppState.newPasscode() }
+                                .controlSize(.small)
+                                .help("Phones already showing the whole board will need the new passcode")
                         }
                     }
                 }
@@ -87,7 +73,7 @@ struct PhonesView: View {
             }
         }
         .padding(24)
-        .frame(width: 1000)
+        .frame(width: 640)
         .onAppear { addresses = RemoteServer.localAddresses() }
     }
 

@@ -59,7 +59,10 @@ final class AppState {
         didSet { sessionChanged(from: oldValue) }
     }
     var selectedMix = 0
-    var route = Route.mixer
+    var route = Route.mixer {
+        didSet { editingName = nil }
+    }
+    var editingName: Strip?   // the mixer name being renamed in place, if any
     var showSetup = false
     var status = AudioStatus()
     var recording: ActiveRecording?

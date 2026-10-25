@@ -157,17 +157,20 @@ struct ResetButton: View {
 }
 
 /// A text field for renaming in place.  Return or clicking anywhere else
-/// saves; Escape cancels.
+/// saves; Escape cancels.  With onTab, Tab and Shift-Tab save and then ask
+/// to move to the next or previous name.
 struct NameField: View {
     @Environment(\.uiScale) private var k
     let initial: String
     var size: CGFloat
     var weight: Font.Weight = .semibold
+    var onTab: ((_ backward: Bool) -> Void)? = nil
     let done: (String?) -> Void
 
     @State private var draft = ""
     @State private var finished = false
     @State private var clickMonitor: Any?
+    @State private var keyMonitor: Any?
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -182,6 +185,7 @@ struct NameField: View {
                 draft = initial
                 DispatchQueue.main.async { focused = true }
                 watchClicksElsewhere()
+                watchTab()
             }
             .onDisappear { stopWatching() }
             .onSubmit { finish() }
@@ -218,32 +222,63 @@ struct NameField: View {
         }
     }
 
+    // The field editor would otherwise use Tab to move focus to whatever
+    // control is next, which isn't the next name.
+    private func watchTab() {
+        guard let onTab else { return }
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard event.keyCode == 48, focused, !finished else { return event }   // 48: Tab
+            let backward = event.modifierFlags.contains(.shift)
+            finish()
+            onTab(backward)
+            return nil
+        }
+    }
+
     private func stopWatching() {
         if let m = clickMonitor { NSEvent.removeMonitor(m) }
+        if let m = keyMonitor { NSEvent.removeMonitor(m) }
         clickMonitor = nil
+        keyMonitor = nil
     }
 }
 
 /// A name you rename by clicking it, pressing and holding it, or from its
-/// context menu.
+/// context menu.  Names on the mixer pass their strip, so Tab can move on to
+/// the next one.
 struct EditableName: View {
+    @Environment(AppState.self) private var app
     @Binding var text: String
     var size: CGFloat
     var weight: Font.Weight = .semibold
-    @State private var editing = false
+    var strip: Strip? = nil
+    @State private var localEditing = false
+
+    private var editing: Bool {
+        if let strip { app.editingName == strip } else { localEditing }
+    }
+
+    private func setEditing(_ on: Bool) {
+        if let strip {
+            if on { app.editingName = strip } else if app.editingName == strip { app.editingName = nil }
+        } else {
+            localEditing = on
+        }
+    }
 
     var body: some View {
         if editing {
-            NameField(initial: text, size: size, weight: weight) { new in
+            NameField(initial: text, size: size, weight: weight,
+                      onTab: strip.map { s in { app.editingName = s.neighbor(backward: $0) } }) { new in
                 if let new { text = new }
-                editing = false
+                setEditing(false)
             }
         } else {
             Text(text).uiFont(size, weight).lineLimit(1)
                 .contentShape(Rectangle())
-                .onTapGesture { editing = true }
-                .onLongPressGesture(minimumDuration: 0.5) { editing = true }
-                .contextMenu { Button("Rename") { editing = true } }
+                .onTapGesture { setEditing(true) }
+                .onLongPressGesture(minimumDuration: 0.5) { setEditing(true) }
+                .contextMenu { Button("Rename") { setEditing(true) } }
                 .help("Click to rename")
         }
     }

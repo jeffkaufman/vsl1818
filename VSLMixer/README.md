@@ -146,7 +146,10 @@ install.
   go over loopback and still work, which hides the problem.
 - Chrome on Android 17 can fail with ERR_TOO_MANY_RETRIES even with Nearby
   devices allowed; its net log shows ERR_LOCAL_NETWORK_PERMISSION_MISSING
-  and nothing reaches the Mac.  Firefox on the same phone works.
+  and nothing reaches the Mac.  Firefox on the same phone works.  What
+  fixed it: force stop Chrome, set Nearby devices to Don't allow, back to
+  Allow, force stop again.  Apparently a grant from before Android 17
+  didn't cover local network access.
 - `RemoteServer.swift` serves `Remote/` over plain HTTP on port 8080 (or the
   next free even port) and speaks JSON over a WebSocket on the port after it.
   The protocol is documented at the top of that file.  Everything runs on the
@@ -157,9 +160,10 @@ install.
   Phones sheet).  Changing the passcode drops phones that were using the old
   one.  Mute, EQ and compression are board-only because they affect every
   output.  Values from phones are clamped (`ChannelSettings.limits`).
-- `PhonesView.swift` is the Phones sheet: QR codes to join the Wi-Fi (if you
-  enter its name and password), one per aux (`/#aux/N`), and one for the
-  whole board (`/#board`).
+- `PhonesView.swift` is the Phones sheet: a QR code to join the Wi-Fi (if
+  you enter its name and password) and one for the page itself, which opens
+  on a list of mixes and the whole board.  The `#aux/N` and `#board` links
+  still work if typed or bookmarked.
 - The page (`remote.js`) is portrait, with screens chosen by the URL hash: pick
   a mix, your aux, the whole board (output chips plus rows with Mute), and a
   channel's EQ and compressor (touch-draggable points).  The EQ math is a port

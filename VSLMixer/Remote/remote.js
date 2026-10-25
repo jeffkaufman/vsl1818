@@ -395,7 +395,9 @@ function landingScreen() {
       const last = Number(store.get(LAST_AUX_KEY));
       grid.replaceChildren(...S.mixes.slice(1).map((m, i) => {
         const a = h('a', { class: 'mixbtn', href: `#aux/${i + 1}` },
-          h('b', {}, m.name), h('span', {}, m.outs), last === i + 1 ? h('em', {}, 'Last used') : null);
+          h('b', {}, m.name),
+          // On the right of the outputs line, so marking a mix doesn't move anything.
+          h('div', { class: 'sub' }, h('span', {}, m.outs), last === i + 1 ? h('em', {}, 'Last used') : null));
         a.style.setProperty('--ground', m.ground);
         a.style.setProperty('--ink', m.ink);
         return a;

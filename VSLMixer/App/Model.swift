@@ -214,6 +214,14 @@ enum Strip: Hashable {
     case input(Int)
     case output(Int)
 
+    /// The next input or output, wrapping around, for Tab between names.
+    func neighbor(backward: Bool) -> Strip {
+        switch self {
+        case .input(let c): .input((c + (backward ? channelCount - 1 : 1)) % channelCount)
+        case .output(let m): .output((m + (backward ? mixCount - 1 : 1)) % mixCount)
+        }
+    }
+
     /// Index for mx_engine_read_scope.
     var scopeSource: Int32 {
         switch self {
