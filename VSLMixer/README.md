@@ -131,8 +131,9 @@ touches the Swift runtime.
   board" is built in (defaults, including names).  Every load first saves the
   current board as "Previous", so a load can be undone.
 - Auxes are named for the jack they drive, Aux N on out N, and the "Out N"
-  label is hidden while the name says it.  Mix indices (engine, protocol,
-  `#aux/N` links) are one less than the jack.  Unless Main is split, Aux 2
+  label is hidden while the name says it.  Phone links match: `#aux/3` is
+  Aux 3.  Mix indices (engine, protocol, `#board/mix/N`) are one less than
+  the jack.  Unless Main is split, Aux 2
   (mix 1) is hidden everywhere: `Session.shownMixes` lists what's in use and
   `isAux` what a phone may take.  Splitting renames "Main" to "Aux 1" (and
   back) if it has its default name; Aux 2 keeps its own settings, which

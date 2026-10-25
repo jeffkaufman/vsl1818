@@ -3,7 +3,7 @@
 //
 // Screens, chosen by the URL hash:
 //   #               pick your mix
-//   #aux/N          a musician's own aux (mix N, on out N+1): one fader per input plus the aux master
+//   #aux/N          a musician's own aux, Aux N on out N (mix N-1): one fader per input plus the aux master
 //   #board/mix/N    whole board (passcode): any output's faders, plus mutes
 //   #board/ch/C/eq  one channel's EQ (or /comp for its compressor)
 'use strict';
@@ -207,7 +207,7 @@ function showOffline(on) {
 function route() {
   const parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
   if (parts[0] === 'aux') {
-    const mix = Number(parts[1]);
+    const mix = Number(parts[1]) - 1;   // numbered by jack, like the aux's name
     if (mix >= 0 && mix <= 7) return { kind: 'aux', mix };
   }
   if (parts[0] === 'board') {
@@ -399,7 +399,7 @@ function landingScreen() {
       const last = Number(store.get(LAST_AUX_KEY));
       grid.replaceChildren(...S.mixes.flatMap((m, i) => {
         if (m.use !== 'aux') return [];
-        const a = h('a', { class: 'mixbtn', href: `#aux/${i}` },
+        const a = h('a', { class: 'mixbtn', href: `#aux/${i + 1}` },
           h('b', {}, m.name),
           // On the right of the outputs line, so marking a mix doesn't move anything.
           h('div', { class: 'sub' }, h('span', {}, m.outs), last === i ? h('em', {}, 'Last used') : null));

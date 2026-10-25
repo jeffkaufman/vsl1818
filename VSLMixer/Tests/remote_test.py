@@ -202,7 +202,7 @@ def ui_tests(code, shots):
             check(f"{name}: landing lists 6 auxes", page.locator(".mixbtn").count() == 6)
             shot("landing")
 
-            page.goto(HTTP + "/#aux/2")
+            page.goto(HTTP + "/#aux/3")
             page.wait_for_selector(".row .fader")
             page.wait_for_timeout(400)
             check(f"{name}: aux page has 8 inputs + master",
