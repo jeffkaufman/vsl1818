@@ -342,7 +342,7 @@ final class RemoteServer {
             return d
         }
         let mixes: [[String: Any]] = s.mixes.enumerated().map { m, mix in
-            ["name": mix.name, "outs": Session.outputs(ofMix: m),
+            ["name": mix.name, "outs": Session.jacks(ofMix: m, name: mix.name),
              "sends": mix.sends.map(r4), "master": r4(mix.master),
              "ground": hex(Theme.mixHex[m].ground), "ink": hex(Theme.mixHex[m].ink)]
         }

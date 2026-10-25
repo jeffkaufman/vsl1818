@@ -425,7 +425,7 @@ function auxScreen(mix) {
     update() {
       setColors(document.body, mix);
       title.firstChild.textContent = S.mixes[mix].name;
-      title.lastChild.textContent = `${S.mixes[mix].outs} · your mix`;
+      title.lastChild.textContent = [S.mixes[mix].outs, 'your mix'].filter(Boolean).join(' · ');
       rows.forEach((r) => r.update());
       master.update();
     },

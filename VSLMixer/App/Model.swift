@@ -313,12 +313,18 @@ struct Session: Codable, Equatable {
         }
     }
 
-    /// "In 3", "Out 1–2"
-    static func jacks(of s: Strip) -> String {
+    /// "In 3", "Out 1–2"; empty for an aux whose name already says it.
+    static func jacks(of s: Strip, name: String) -> String {
         switch s {
         case .input(let c): "In \(c + 1)"
-        case .output(let m): outputs(ofMix: m)
+        case .output(let m): jacks(ofMix: m, name: name)
         }
+    }
+
+    /// The jack label to show under or over a mix's name: "Aux 5" doesn't
+    /// need "Out 5", but "Fiddle" does.
+    static func jacks(ofMix m: Int, name: String) -> String {
+        m > 0 && name == "Aux \(m + 2)" ? "" : outputs(ofMix: m)
     }
 
     /// Which output jacks a mix drives.

@@ -278,7 +278,7 @@ struct MixButton: View {
                         if let new { app.session.mixes[mix].name = new }
                         if app.editingName == .output(mix) { app.editingName = nil }
                     }
-                    Text(Session.outputs(ofMix: mix)).uiFont(12).opacity(0.85)
+                    Text(Session.jacks(ofMix: mix, name: name)).uiFont(12).opacity(0.85)
                 }
                 .padding(.horizontal, 10 * k)
                 .frame(width: 150 * k, height: 50 * k, alignment: .leading)
@@ -288,7 +288,7 @@ struct MixButton: View {
                 Button { app.selectedMix = mix } label: {
                     VStack(alignment: .leading, spacing: 1 * k) {
                         Text(name).uiFont(14, .semibold).lineLimit(1)
-                        Text(Session.outputs(ofMix: mix)).uiFont(12).opacity(0.85)
+                        Text(Session.jacks(ofMix: mix, name: name)).uiFont(12).opacity(0.85)
                     }
                     .padding(.horizontal, 14 * k)
                     .frame(minWidth: 104 * k, minHeight: 50 * k, alignment: .leading)
@@ -382,7 +382,7 @@ struct MasterStrip: View {
             set: { app.session.mixes[mix].processing.muted = $0 })
         VStack(alignment: .leading, spacing: 10 * k) {
             VStack(alignment: .leading, spacing: 1 * k) {
-                Text(Session.outputs(ofMix: mix)).uiFont(12).foregroundStyle(Theme.secondary)
+                Text(Session.jacks(ofMix: mix, name: name) + " ").uiFont(12).foregroundStyle(Theme.secondary)
                 Text(name).uiFont(15, .semibold)
                     .foregroundStyle(theme.ink).lineLimit(1)
             }
