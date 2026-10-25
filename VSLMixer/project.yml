@@ -40,6 +40,9 @@ targets:
         # from other devices; without it the sandbox drops them (localhost
         # still works, which hides the problem).
         com.apple.security.network.client: true
+        # The sandbox only lets it share memory under an app group's name;
+        # this is the one Jammer writes its output to (Engine/jammer_link.h).
+        com.apple.security.application-groups: [C58DMTY76R.jefftk.audio]
     settings:
       base:
         PRODUCT_NAME: VSL Mixer

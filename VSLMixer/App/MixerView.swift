@@ -104,6 +104,8 @@ struct StatusPill: View {
             switch s.state {
             case .starting:
                 return (Theme.warn, "Starting audio", "")
+            case .running where s.jammerLinked && !s.jammerAlive:
+                return (Theme.warn, "Waiting for Jammer", "")
             case .running:
                 return (Theme.good, "\(s.dropouts) dropout\(s.dropouts == 1 ? "" : "s")", "")
             case .problem(let msg):
@@ -134,6 +136,8 @@ extension StatusPill {
             ? String(format: "%.0f kHz", s.sampleRate / 1000) : String(format: "%.1f kHz", s.sampleRate / 1000)
         return "Audio running at \(rate) with a \(s.bufferFrames)-sample buffer; about "
             + String(format: "%.1f", s.latencyMs) + " ms from analog input to analog output"
+            + (s.jammerLinked ? (s.jammerAlive ? ". Inputs 1–2 are Jammer's left and right."
+                                 : ". Inputs 1–2 are silent until Jammer plays into them.") : "")
     }
 }
 

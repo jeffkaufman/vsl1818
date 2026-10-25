@@ -186,6 +186,35 @@ install.
 - Bluetooth was considered: Web Bluetooth would work on Android only, for
   roughly one phone at a time, so Wi-Fi it is.
 
+### Jammer on inputs 1 and 2
+
+Jammer (`~/code/jammer`) is the owner's live rig: a synth played from MIDI
+pedals, a breath controller, a whistle microphone and a mandolin.  On the
+Scarlett it reads inputs 1 and 2 and plays out of outputs 1 and 2.  With the
+AudioBox, **Inputs 1–2 from Jammer** in Setup splices it in: Jammer still
+reads the box's real inputs 1 and 2 itself (any number of apps can read one
+device's inputs), and its main left and right come into the mixer as inputs
+1 and 2 in place of those jacks, with the usual EQ, compressor and sends.
+Meters, spectra and recordings all see Jammer there.  Turning it on renames
+inputs 1 and 2 to "Jammer L" and "Jammer R" if they still have their default
+names.
+
+- Jammer does this whenever its audio output is the AudioBox.  It opens the
+  box for output, which keeps it on the box's clock, writes silence to the
+  jacks, and writes its audio to a ring in shared memory
+  (`Engine/jammer_link.h`, mirrored by jammer's `vsllink.h`).
+- The IO proc reads the ring by Jammer's block size plus two of its own
+  buffers behind the write position.  The two apps share a clock, so it
+  doesn't drift; it resyncs (a click) only if the threads' timing drifts out
+  of range.  With no write for 100 ms, Jammer counts as gone: inputs 1–2 go
+  silent and the status pill says "Waiting for Jammer".
+- The sandbox only allows POSIX shared memory named under an application
+  group, so `project.yml` has `C58DMTY76R.jefftk.audio` and the segment is
+  `C58DMTY76R.jefftk.audio/link` (shm names max out at 31 characters).
+  Tested with the real box: a stand-in producer's −6 and −20 dBFS tones read
+  exactly that on inputs 1 and 2, and Jammer writes 64-frame blocks at the
+  box's 48 kHz.
+
 ## Building
 
 ```

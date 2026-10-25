@@ -44,6 +44,8 @@ typedef struct {
     bool recording;
     uint64_t recorded_frames;
     uint32_t record_overflows;
+    bool jammer_linked;      // inputs 1 and 2 come from Jammer
+    bool jammer_alive;       // and Jammer is playing into them
 } mx_stats;
 
 typedef struct mx_engine mx_engine;
@@ -71,6 +73,10 @@ void mx_engine_set_mix_processing(mx_engine *e, int mix, const mx_channel_settin
 void mx_engine_set_mix_mute(mx_engine *e, int mix, bool muted);
 // Delays a mix's output, after its master.  Changes crossfade over ~5 ms.
 void mx_engine_set_mix_delay(mx_engine *e, int mix, float ms);
+// Takes inputs 1 and 2 from Jammer's main left and right instead of the
+// jacks (see jammer_link.h).  Everything downstream, recording included,
+// sees Jammer there.  False if the shared memory couldn't be opened.
+bool mx_engine_set_jammer_link(mx_engine *e, bool on);
 
 typedef struct {
     float in_peak[MX_CHANNELS];   // linear, before any processing

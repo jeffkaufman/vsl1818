@@ -54,6 +54,8 @@ struct AudioStatus: Equatable {
     var bufferFrames = 0
     var latencyMs = 0.0
     var dropouts = 0
+    var jammerLinked = false   // inputs 1–2 are taken from Jammer
+    var jammerAlive = false    // and Jammer is playing into them
 }
 
 struct ActiveRecording {
@@ -74,6 +76,7 @@ final class AppState {
     var editingName: Strip?   // the mixer name being renamed in place, if any
     var showSetup = false
     var status = AudioStatus()
+    var jammerLinkFailed = false
     var recording: ActiveRecording?
     var lastRecording: URL?
     var recordingError: String?
@@ -184,6 +187,8 @@ final class AppState {
         status.bufferFrames = Int(st.buffer_frames)
         status.latencyMs = st.sample_rate > 0 ? 1000 * Double(st.latency_frames) / st.sample_rate : 0
         status.dropouts = Int(st.dropouts)
+        status.jammerLinked = st.jammer_linked
+        status.jammerAlive = st.jammer_alive
     }
 
     /// Every half second: notice stalls, unplugs and outside sample-rate
@@ -312,6 +317,8 @@ final class AppState {
     }
 
     private func pushAll() {
+        let linkFailed = !mx_engine_set_jammer_link(engine, session.jammerLink == true)
+        if linkFailed != jammerLinkFailed { jammerLinkFailed = linkFailed }
         for (c, ch) in session.channels.enumerated() {
             var s = ch.engineSettings
             mx_engine_set_channel(engine, Int32(c), &s)

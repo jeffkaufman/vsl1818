@@ -32,6 +32,10 @@ struct SetupView: View {
                     Text("Smaller buffers mean less delay but more risk of dropouts. 48 kHz with 16 or 32 samples tested reliably with the AudioBox plugged directly into this Mac.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
+                Section("Jammer") {
+                    Toggle("Inputs 1–2 from Jammer", isOn: jammerLink)
+                    Text(jammerNote).font(.caption).foregroundStyle(.secondary)
+                }
                 Section("Input names") {
                     ForEach(0..<channelCount, id: \.self) { c in
                         TextField("In \(c + 1)", text: $app.session.channels[c].name)
@@ -63,4 +67,27 @@ struct SetupView: View {
     }
 
     private func isAudioBox(_ name: String) -> Bool { name.contains("1818") }
+
+    /// Turning it on names inputs 1 and 2 for Jammer, unless they've been named already.
+    private var jammerLink: Binding<Bool> {
+        Binding(get: { app.session.jammerLink == true }, set: { on in
+            var s = app.session
+            s.jammerLink = on
+            if on {
+                for (c, side) in ["L", "R"].enumerated() where s.channels[c].name == "Input \(c + 1)" {
+                    s.channels[c].name = "Jammer \(side)"
+                }
+            }
+            app.session = s
+        })
+    }
+
+    private var jammerNote: String {
+        if app.session.jammerLink != true {
+            return "Jammer's main left and right can come in on inputs 1 and 2 in place of the jacks. Jammer still hears the real inputs 1 and 2."
+        }
+        if app.jammerLinkFailed { return "Couldn't open the connection to Jammer." }
+        if app.status.jammerAlive { return "Jammer is playing into inputs 1 and 2." }
+        return "Waiting for Jammer. Set its audio output to the AudioBox and it plays into inputs 1 and 2 instead of out of the jacks."
+    }
 }

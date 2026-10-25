@@ -41,6 +41,7 @@
 		C0AE8066A9AAF60F1B6B4D8A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		F1058A8B893CCBDD6CC82D23 /* engine.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = engine.c; sourceTree = "<group>"; };
 		F7C195680883985036E5C05A /* Controls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Controls.swift; sourceTree = "<group>"; };
+		FDBC52C213B306A29FAA48BE /* jammer_link.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = jammer_link.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -67,6 +68,7 @@
 			children = (
 				F1058A8B893CCBDD6CC82D23 /* engine.c */,
 				504FF238EB18F0E6EF773A8F /* engine.h */,
+				FDBC52C213B306A29FAA48BE /* jammer_link.h */,
 			);
 			path = Engine;
 			sourceTree = "<group>";

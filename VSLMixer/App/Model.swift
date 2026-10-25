@@ -255,6 +255,10 @@ struct Session: Codable, Equatable {
     var wifiName: String?          // only used to draw a join-Wi-Fi QR code
     var wifiPassword: String?
 
+    /// Inputs 1 and 2 are Jammer's main left and right rather than the jacks
+    /// (Engine/jammer_link.h).  nil counts as off.
+    var jammerLink: Bool?
+
     static var initial: Session {
         // Everything starts pulled down so a fresh install never surprises
         // anyone with sound (or feedback) through the PA.

@@ -1,12 +1,17 @@
 #include "engine.h"
+#include "jammer_link.h"
 
 #include <AudioToolbox/AudioToolbox.h>
 #include <CoreAudio/CoreAudio.h>
+#include <fcntl.h>
+#include <mach/mach_time.h>
 #include <math.h>
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #define MAX_FRAMES 4096            // largest IO buffer we accept
@@ -188,6 +193,14 @@ struct mx_engine {
 
     mx_post_hook hook;
     void *hook_ctx;
+
+    // ---- Jammer on inputs 1 and 2 (jammer_link.h)
+    jammer_link *link;        // mapped once by the UI thread, never unmapped
+    _Atomic bool link_on;
+    _Atomic bool link_alive;  // IO thread: Jammer has written recently
+    uint64_t link_timeout;    // mach ticks without a write before it's gone
+    uint64_t link_rd;         // IO thread only
+    bool link_synced;
 };
 
 static mx_channel_settings default_settings(void) {
@@ -250,6 +263,7 @@ static void reset_rt(mx_engine *e, double fs) {
         for (int c = 0; c < MX_CHANNELS; c++) e->send_g[m][c] = atomic_load(&e->send[m][c]);
     }
     e->last_in_time = -1;
+    e->link_synced = false;
 }
 
 mx_engine *mx_engine_create(void) {
@@ -474,6 +488,73 @@ static float *locate(const AudioBufferList *l, int want, int *stride) {
     return NULL;
 }
 
+// Jammer's left and right into channels 0 and 1 of interleaved `dst`.  Both
+// apps run off the box's clock, so the ring doesn't drift; this stays a
+// little behind Jammer's writes, by its block plus two of ours, and only
+// jumps (a click) if the two threads' timing gets far enough apart to need
+// it.  Silence while Jammer isn't writing.
+static void link_read(mx_engine *e, float *dst, int frames) {
+    jammer_link *l = e->link;
+    uint64_t w = atomic_load_explicit(&l->write_pos, memory_order_acquire);
+    uint64_t beat = atomic_load_explicit(&l->heartbeat, memory_order_relaxed);
+    bool alive = beat != 0 && mach_absolute_time() - beat < e->link_timeout;
+    atomic_store_explicit(&e->link_alive, alive, memory_order_relaxed);
+    if (alive) {
+        int64_t lag = (int64_t)(w - e->link_rd);
+        if (!e->link_synced || lag < frames || lag > (int64_t)JL_FRAMES / 2) {
+            uint32_t block = atomic_load_explicit(&l->block, memory_order_relaxed);
+            if (block > JL_FRAMES / 4) block = JL_FRAMES / 4;
+            uint64_t target = block + 2 * (uint64_t)frames;
+            e->link_synced = w >= target;
+            e->link_rd = w - target;
+        }
+    } else {
+        e->link_synced = false;
+    }
+    for (int i = 0; i < frames; i++) {
+        const float *f = l->audio[(e->link_rd + i) & (JL_FRAMES - 1)];
+        dst[i * MX_CHANNELS] = e->link_synced ? f[0] : 0;
+        dst[i * MX_CHANNELS + 1] = e->link_synced ? f[1] : 0;
+    }
+    if (e->link_synced) e->link_rd += frames;
+}
+
+static jammer_link *link_map(void) {
+    int fd = shm_open(JL_NAME, O_RDWR | O_CREAT, 0600);
+    if (fd < 0) return NULL;
+    // Whichever app gets here first sizes it; it can only be sized once.
+    struct stat st;
+    if (fstat(fd, &st) == 0 && st.st_size == 0) ftruncate(fd, sizeof(jammer_link));
+    if (fstat(fd, &st) != 0 || st.st_size < (off_t)sizeof(jammer_link)) {
+        close(fd);
+        return NULL;
+    }
+    void *p = mmap(NULL, sizeof(jammer_link), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    close(fd);
+    if (p == MAP_FAILED) return NULL;
+    jammer_link *l = p;
+    uint32_t expected = 0;
+    atomic_compare_exchange_strong(&l->magic, &expected, JL_MAGIC);
+    if (atomic_load(&l->magic) != JL_MAGIC) {
+        munmap(p, sizeof(jammer_link));
+        return NULL;
+    }
+    return l;
+}
+
+bool mx_engine_set_jammer_link(mx_engine *e, bool on) {
+    if (on && !e->link) {
+        e->link = link_map();
+        if (!e->link) return false;
+        mach_timebase_info_data_t tb;
+        mach_timebase_info(&tb);
+        e->link_timeout = 100000000ull * tb.denom / tb.numer;   // 100 ms
+    }
+    atomic_store_explicit(&e->link_on, on, memory_order_release);
+    if (!on) atomic_store(&e->link_alive, false);
+    return true;
+}
+
 static OSStatus io_proc(AudioObjectID dev, const AudioTimeStamp *now,
                         const AudioBufferList *in, const AudioTimeStamp *in_time,
                         AudioBufferList *out, const AudioTimeStamp *out_time,
@@ -496,7 +577,8 @@ static OSStatus io_proc(AudioObjectID dev, const AudioTimeStamp *now,
     // direction; anything else gets gathered into scratch space.
     const float *ip;
     int is;
-    if (in->mNumberBuffers == 1 && in->mBuffers[0].mNumberChannels >= MX_CHANNELS) {
+    bool linked = atomic_load_explicit(&e->link_on, memory_order_acquire);
+    if (!linked && in->mNumberBuffers == 1 && in->mBuffers[0].mNumberChannels >= MX_CHANNELS) {
         ip = in->mBuffers[0].mData;
         is = (int)in->mBuffers[0].mNumberChannels;
     } else {
@@ -508,6 +590,7 @@ static OSStatus io_proc(AudioObjectID dev, const AudioTimeStamp *now,
         }
         ip = e->in_scratch;
         is = MX_CHANNELS;
+        if (linked) link_read(e, e->in_scratch, frames);
     }
 
     if (out->mNumberBuffers == 1 && out->mBuffers[0].mNumberChannels >= MX_OUTPUTS) {
@@ -713,6 +796,8 @@ void mx_engine_get_stats(mx_engine *e, mx_stats *st) {
     st->recording = atomic_load(&e->recording);
     st->recorded_frames = atomic_load(&e->recorded_frames);
     st->record_overflows = atomic_load(&e->rec_overflows);
+    st->jammer_linked = atomic_load(&e->link_on);
+    st->jammer_alive = st->jammer_linked && st->running && atomic_load(&e->link_alive);
 }
 
 // ---------------------------------------------------------------- recording
