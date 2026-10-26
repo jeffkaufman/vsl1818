@@ -103,6 +103,14 @@ touches the Swift runtime.
   sum (before processing) for the EQ editor's spectrum; `Spectrum.swift`
   FFTs it with Accelerate at 30 Hz, only while an EQ editor is open.  The
   after-EQ spectrum is the before spectrum plus the EQ curve.
+- The Feedback screen (`FeedbackView.swift`) shows all eight inputs'
+  spectra at once, before EQ, from the same capture, while it's open.
+  Hovering one puts a cursor at that frequency on all of them and outlines
+  the loudest input there; clicking opens its EQ.  `Spectrum.steadyHz`
+  marks a peak 15 dB above the third of an octave around it, above
+  −60 dBFS and 100 Hz–12 kHz, that holds its bin for a second.  That's
+  feedback, but a held note also counts, so the UI says "steady", not
+  "feedback".
 - `mx_eq_response_db` uses the same filter design, so the curves drawn in the
   UI are exactly what's running.
 

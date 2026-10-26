@@ -7,6 +7,7 @@ enum Route: Equatable {
     case mixer
     case eq(Strip)
     case comp(Strip)
+    case feedback
 }
 
 /// Meter readings in dBFS, with display ballistics applied.
@@ -71,8 +72,13 @@ final class AppState {
     }
     var selectedMix = 0
     var route = Route.mixer {
-        didSet { editingName = nil }
+        didSet {
+            editingName = nil
+            if route == .mixer || route == .feedback { editorReturn = route }
+        }
     }
+    /// Where the EQ and compressor editors go back to: the screen they were opened from.
+    private(set) var editorReturn = Route.mixer
     var editingName: Strip?   // the mixer name being renamed in place, if any
     var showSetup = false
     var status = AudioStatus()
@@ -87,6 +93,7 @@ final class AppState {
     var now = Date()
     let meters = Meters()
     let spectrum = Spectrum()
+    let inputSpectra = (0..<channelCount).map { _ in Spectrum() }   // for the feedback screen
 
     @ObservationIgnored private let engine: OpaquePointer = mx_engine_create()
     @ObservationIgnored private var meterTimer: Timer?
@@ -254,9 +261,13 @@ final class AppState {
             meters.mix[m] = ballistic(meters.mix[m], mix[m])
             if mix[m] >= Meters.outputClipLevel && !meters.mixClipped[m] { meters.mixClipped[m] = true }
         }
+        let rate = status.sampleRate > 0 ? status.sampleRate : session.sampleRate
         if case .eq(let strip) = route {
-            spectrum.update(engine: engine, source: strip.scopeSource,
-                            sampleRate: status.sampleRate > 0 ? status.sampleRate : session.sampleRate)
+            spectrum.update(engine: engine, source: strip.scopeSource, sampleRate: rate)
+        } else if route == .feedback {
+            for c in 0..<channelCount {
+                inputSpectra[c].update(engine: engine, source: Strip.input(c).scopeSource, sampleRate: rate)
+            }
         }
         meterTicks += 1
         if meterTicks % 2 == 0 { remote?.broadcastMeters(meters) }

@@ -41,6 +41,8 @@ struct HeaderBar: View {
                     .buttonStyle(.link).uiFont(12)
             }
             RecordButton()
+            HeaderButton(title: "Feedback") { app.route = .feedback }
+                .help("See every input's spectrum, to find which mic is feeding back")
             ScenesMenu()
             PhonesButton()
             HeaderButton(title: "Setup") { app.showSetup = true }

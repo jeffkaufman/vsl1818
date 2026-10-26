@@ -20,6 +20,7 @@
 		A2479292933C3E8DE016AA74 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34713F3F14BC07F14A459136 /* AppState.swift */; };
 		A2890E77A3E4D5EA69F5EC8F /* engine.c in Sources */ = {isa = PBXBuildFile; fileRef = F1058A8B893CCBDD6CC82D23 /* engine.c */; };
 		A7C0F0ED1ED0858FEA2F8396 /* MixerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 769014BB8CE357000E0FAF02 /* MixerView.swift */; };
+		CBDED7A379F5D732D9AD5691 /* FeedbackView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DFD6DF1F67D4468A8A9884B /* FeedbackView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -33,6 +34,7 @@
 		6E0DFCF52D113E3201DDABDA /* RemoteServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteServer.swift; sourceTree = "<group>"; };
 		769014BB8CE357000E0FAF02 /* MixerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MixerView.swift; sourceTree = "<group>"; };
 		83E8667764CB34337AF8045F /* Spectrum.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Spectrum.swift; sourceTree = "<group>"; };
+		8DFD6DF1F67D4468A8A9884B /* FeedbackView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedbackView.swift; sourceTree = "<group>"; };
 		90EA1BDA7BF9396FDB666E11 /* ChannelEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelEditor.swift; sourceTree = "<group>"; };
 		97F20EAB97230A4FFA664619 /* Remote */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Remote; sourceTree = SOURCE_ROOT; };
 		9CAD59A8D2884FB5F2B742EF /* SetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupView.swift; sourceTree = "<group>"; };
@@ -80,6 +82,7 @@
 				B70ACB1000F3175853342805 /* BridgingHeader.h */,
 				90EA1BDA7BF9396FDB666E11 /* ChannelEditor.swift */,
 				F7C195680883985036E5C05A /* Controls.swift */,
+				8DFD6DF1F67D4468A8A9884B /* FeedbackView.swift */,
 				C0AE8066A9AAF60F1B6B4D8A /* Info.plist */,
 				769014BB8CE357000E0FAF02 /* MixerView.swift */,
 				28BC57E3B34DBFA3A2DD7388 /* Model.swift */,
@@ -167,6 +170,7 @@
 				A2479292933C3E8DE016AA74 /* AppState.swift in Sources */,
 				192546F585C1F7C9ADF7FB48 /* ChannelEditor.swift in Sources */,
 				900FD2B85E04C4EE5A5927E6 /* Controls.swift in Sources */,
+				CBDED7A379F5D732D9AD5691 /* FeedbackView.swift in Sources */,
 				A7C0F0ED1ED0858FEA2F8396 /* MixerView.swift in Sources */,
 				8ECFD268EAE5AB05FFB32314 /* Model.swift in Sources */,
 				9DC1975726937519DADFE27A /* PhonesView.swift in Sources */,

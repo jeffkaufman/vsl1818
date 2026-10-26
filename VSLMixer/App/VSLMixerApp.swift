@@ -38,6 +38,7 @@ struct ContentView: View {
                 case .mixer: MixerView()
                 case .eq(let s): ChannelEditorView(strip: s, tab: .eq)
                 case .comp(let s): ChannelEditorView(strip: s, tab: .comp)
+                case .feedback: FeedbackView()
                 }
             }
             .environment(\.uiScale, min(1.8, max(1, min(geo.size.width / 1440, geo.size.height / 900))))

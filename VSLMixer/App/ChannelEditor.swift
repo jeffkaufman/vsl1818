@@ -13,8 +13,8 @@ struct ChannelEditorView: View {
                             set: { app.session[strip: strip].muted = $0 })
         VStack(alignment: .leading, spacing: 14 * k) {
             HStack(spacing: 16 * k) {
-                Button { app.route = .mixer } label: {
-                    Label("Mixer", systemImage: "chevron.left")
+                Button { app.route = app.editorReturn } label: {
+                    Label(app.editorReturn == .feedback ? "Feedback" : "Mixer", systemImage: "chevron.left")
                         .uiFont(13).padding(.horizontal, 14 * k).frame(height: 34 * k)
                         .background(RoundedRectangle(cornerRadius: 8 * k).fill(Theme.panel))
                         .overlay(RoundedRectangle(cornerRadius: 8 * k).stroke(Theme.control))
