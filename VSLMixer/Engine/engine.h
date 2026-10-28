@@ -111,9 +111,15 @@ void mx_engine_read_meters(mx_engine *e, mx_meters *m);
 // windowed FFT doesn't notice.
 void mx_engine_read_scope(mx_engine *e, int source, float out[MX_SCOPE_FRAMES]);
 
-// Records the raw inputs as eight mono 24-bit WAV files in directory.
-int mx_engine_record_start(mx_engine *e, const char *directory);
+// Records the raw inputs as eight mono 24-bit WAV files in directory,
+// in1.wav ... in8.wav.  With Jammer linked those have Jammer on 1 and 2, so
+// `jacks` adds jack1.wav and jack2.wav with what came in on the jacks
+// themselves (the same as in1 and in2 while it isn't).
+int mx_engine_record_start(mx_engine *e, const char *directory, bool jacks);
 void mx_engine_record_stop(mx_engine *e);
+// mach_absolute_time() of the recording's first frame as it came in at the
+// converters, for lining up other things with it (MIDI); 0 until known.
+double mx_engine_record_origin(mx_engine *e);
 
 // Magnitude response of the high-pass + EQ section, for drawing curves.
 double mx_eq_response_db(const mx_channel_settings *s, double sample_rate,

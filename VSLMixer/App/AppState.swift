@@ -65,6 +65,12 @@ struct ActiveRecording {
     let folder: URL
     let started: Date
     let names: [String]
+    let sampleRate: Double
+    /// With Jammer linked: jacks 1 and 2 too, since inputs 1 and 2 are
+    /// Jammer, and the MIDI played into it.
+    let jammer: Bool
+
+    var tracks: Int { names.count + (jammer ? 2 : 0) }
 }
 
 @MainActor @Observable
@@ -110,6 +116,7 @@ final class AppState {
     @ObservationIgnored private(set) var remote: RemoteServer!
     @ObservationIgnored private var sleepAssertion: IOPMAssertionID = 0
     @ObservationIgnored private var activationObservers: [NSObjectProtocol] = []
+    @ObservationIgnored private var midiRecorder: MidiRecorder?   // made once Jammer is linked
 
     init() {
         session = Self.loadSession() ?? .initial
@@ -335,6 +342,9 @@ final class AppState {
     }
 
     private func pushAll() {
+        // Listening for MIDI from when Jammer is linked, not from the first
+        // recording, so Jammer has found VSL Mixer's own source by then.
+        if session.jammerLink == true && midiRecorder == nil { midiRecorder = MidiRecorder() }
         let linkFailed = !mx_engine_set_jammer_link(engine, session.jammerLink == true)
         if linkFailed != jammerLinkFailed { jammerLinkFailed = linkFailed }
         for p in 0..<pairCount { mx_engine_set_linked(engine, Int32(p), session.isLinked(pair: p)) }
@@ -394,13 +404,18 @@ final class AppState {
             recordingError = "Couldn't create \(folder.path)"
             return
         }
-        let err = folder.path.withCString { mx_engine_record_start(engine, $0) }
+        let jammer = session.jammerLink == true
+        let err = folder.path.withCString { mx_engine_record_start(engine, $0, jammer) }
         if err != 0 {
             recordingError = "Couldn't create the recording files"
             return
         }
         recording = ActiveRecording(folder: folder, started: Date(),
-                                    names: session.channels.map(\.name))
+                                    names: session.channels.map(\.name),
+                                    sampleRate: status.sampleRate, jammer: jammer)
+        if jammer {
+            midiRecorder?.start(engine: engine, sampleRate: status.sampleRate)
+        }
     }
 
     /// Whichever runs out first: free disk space, or the 4 GB limit on each
@@ -412,7 +427,7 @@ final class AppState {
         var left = wavLeft
         if let free = try? rec.folder.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
             .volumeAvailableCapacityForImportantUsage {
-            left = min(left, Double(free) / (trackBytesPerSecond * Double(channelCount)))
+            left = min(left, Double(free) / (trackBytesPerSecond * Double(rec.tracks)))
         }
         recordingSecondsLeft = max(0, left)
         if left <= 1 {
@@ -425,11 +440,18 @@ final class AppState {
         guard let rec = recording else { return }
         mx_engine_record_stop(engine)
         recording = nil
-        // The engine writes in1.wav ... in8.wav; give them the channel names.
-        for (c, name) in rec.names.enumerated() {
+        if rec.jammer {
+            midiRecorder?.stop(writingTo: rec.folder.appendingPathComponent("Jammer MIDI.mid"),
+                               sampleRate: rec.sampleRate)
+        }
+        // The engine writes in1.wav ... in8.wav, and jack1.wav and jack2.wav
+        // under Jammer; give them the channel names.
+        var renames = rec.names.enumerated().map { c, name in ("in\(c + 1)", name) }
+        if rec.jammer { renames += [("jack1", "In 1 (jack)"), ("jack2", "In 2 (jack)")] }
+        for (i, (file, name)) in renames.enumerated() {
             let safe = name.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
-            let from = rec.folder.appendingPathComponent("in\(c + 1).wav")
-            let to = rec.folder.appendingPathComponent(String(format: "%02d %@.wav", c + 1, safe))
+            let from = rec.folder.appendingPathComponent("\(file).wav")
+            let to = rec.folder.appendingPathComponent(String(format: "%02d %@.wav", i + 1, safe))
             try? FileManager.default.moveItem(at: from, to: to)
         }
         lastRecording = rec.folder

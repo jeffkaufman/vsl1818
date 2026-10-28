@@ -69,7 +69,7 @@ static double phase_gain(mx_engine *e, const char *root, const char *name, doubl
     snprintf(dir, sizeof dir, "%s/%s", root, name);
     mkdir(dir, 0755);
     usleep(300000);  // let gain changes and the compressor settle
-    if (mx_engine_record_start(e, dir)) { printf("could not record to %s\n", dir); exit(2); }
+    if (mx_engine_record_start(e, dir, false)) { printf("could not record to %s\n", dir); exit(2); }
     sleep(2);
     mx_engine_record_stop(e);
     double a = tone_level(dir, 1), b = tone_level(dir, 3);

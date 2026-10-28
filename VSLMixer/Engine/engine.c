@@ -17,6 +17,7 @@
 #define MAX_FRAMES 4096            // largest IO buffer we accept
 #define MAX_DEVICE_CHANNELS 64
 #define RING_FRAMES (1 << 18)      // ~5 s at 48 kHz of recording slack
+#define REC_TRACKS (MX_CHANNELS + 2)   // the inputs, then jacks 1 and 2 under Jammer
 // Inputs and mixes share the processing code: strip c < MX_CHANNELS is an
 // input, strip MX_CHANNELS + m is mix m.
 #define STRIPS (MX_CHANNELS + MX_MIXES)
@@ -172,6 +173,10 @@ struct mx_engine {
     float lim_rel;                  // limiter release, per sample
     double last_in_time;
     float in_scratch[MAX_FRAMES * MX_CHANNELS];
+    float jack_scratch[MAX_FRAMES * 2];   // jacks 1 and 2 while Jammer replaces them
+    const float *jacks;                   // into it, or NULL when they aren't replaced
+    double in_host;                       // host time of this cycle's first input frame
+    double ticks_per_frame;               // host clock ticks per sample
     float out_scratch[MAX_FRAMES * MX_OUTPUTS];
 
     // ---- written by the IO thread, read by the UI thread
@@ -199,10 +204,12 @@ struct mx_engine {
     _Atomic uint64_t ring_w, ring_r;
     _Atomic uint32_t rec_overflows;
     _Atomic uint64_t recorded_frames;
+    _Atomic double rec_origin;   // host time of the recording's first frame
+    int rec_tracks;
     float *ring;
     pthread_t rec_thread;
     bool rec_thread_live;
-    ExtAudioFileRef files[MX_CHANNELS];
+    ExtAudioFileRef files[REC_TRACKS];
 
     mx_post_hook hook;
     void *hook_ctx;
@@ -290,6 +297,9 @@ static void send_targets(mx_engine *e, float l[MX_MIXES][MX_CHANNELS],
 
 static void reset_rt(mx_engine *e, double fs) {
     e->fs = fs;
+    mach_timebase_info_data_t tb;
+    mach_timebase_info(&tb);
+    e->ticks_per_frame = 1e9 * tb.denom / tb.numer / fs;
     e->smooth = (float)(1 - exp(-1.0 / (0.005 * fs)));  // ~5 ms glide
     e->lim_rel = (float)(1 - exp(-1.0 / (LIMIT_RELEASE_MS / 1000.0 * fs)));
     for (int c = 0; c < STRIPS; c++) {
@@ -320,7 +330,7 @@ static void reset_rt(mx_engine *e, double fs) {
 mx_engine *mx_engine_create(void) {
     mx_engine *e = calloc(1, sizeof *e);
     if (!e) return NULL;
-    e->ring = calloc((size_t)RING_FRAMES * MX_CHANNELS, sizeof(float));
+    e->ring = calloc((size_t)RING_FRAMES * REC_TRACKS, sizeof(float));
     if (!e->ring) { free(e); return NULL; }
     for (int c = 0; c < STRIPS; c++) e->pending[c] = default_settings();
     atomic_store(&e->linked[0], true);   // Main on outs 1 and 2
@@ -406,9 +416,13 @@ static void record_block(mx_engine *e, const float *in, int in_stride, int frame
     uint64_t space = RING_FRAMES - (w - r);
     int n = frames <= (int)space ? frames : (int)space;
     for (int i = 0; i < n; i++) {
-        float *dst = &e->ring[((w + i) & (RING_FRAMES - 1)) * MX_CHANNELS];
+        float *dst = &e->ring[((w + i) & (RING_FRAMES - 1)) * REC_TRACKS];
         for (int c = 0; c < MX_CHANNELS; c++) dst[c] = in[i * in_stride + c];
+        for (int j = 0; j < 2; j++) dst[MX_CHANNELS + j] = e->jacks ? e->jacks[i * 2 + j] : dst[j];
     }
+    if (e->in_host > 0)
+        atomic_store_explicit(&e->rec_origin, e->in_host - (double)w * e->ticks_per_frame,
+                              memory_order_relaxed);
     atomic_store_explicit(&e->ring_w, w + n, memory_order_release);
     if (n < frames) atomic_fetch_add(&e->rec_overflows, 1);
 }
@@ -699,6 +713,8 @@ static OSStatus io_proc(AudioObjectID dev, const AudioTimeStamp *now,
     const float *ip;
     int is;
     bool linked = atomic_load_explicit(&e->link_on, memory_order_acquire);
+    e->in_host = (in_time->mFlags & kAudioTimeStampHostTimeValid) ? (double)in_time->mHostTime : 0;
+    e->jacks = NULL;
     if (!linked && in->mNumberBuffers == 1 && in->mBuffers[0].mNumberChannels >= MX_CHANNELS) {
         ip = in->mBuffers[0].mData;
         is = (int)in->mBuffers[0].mNumberChannels;
@@ -711,7 +727,12 @@ static OSStatus io_proc(AudioObjectID dev, const AudioTimeStamp *now,
         }
         ip = e->in_scratch;
         is = MX_CHANNELS;
-        if (linked) link_read(e, e->in_scratch, frames);
+        if (linked) {
+            for (int i = 0; i < frames; i++)
+                for (int j = 0; j < 2; j++) e->jack_scratch[i * 2 + j] = e->in_scratch[i * MX_CHANNELS + j];
+            e->jacks = e->jack_scratch;
+            link_read(e, e->in_scratch, frames);
+        }
     }
 
     if (out->mNumberBuffers == 1 && out->mBuffers[0].mNumberChannels >= MX_OUTPUTS) {
@@ -925,7 +946,7 @@ void mx_engine_get_stats(mx_engine *e, mx_stats *st) {
 
 static void *rec_main(void *arg) {
     mx_engine *e = arg;
-    static float planes[MX_CHANNELS][4096];
+    static float planes[REC_TRACKS][4096];
     for (;;) {
         uint64_t r = atomic_load_explicit(&e->ring_r, memory_order_relaxed);
         uint64_t w = atomic_load_explicit(&e->ring_w, memory_order_acquire);
@@ -937,11 +958,11 @@ static void *rec_main(void *arg) {
         }
         UInt32 n = avail > 4096 ? 4096 : (UInt32)avail;
         for (UInt32 i = 0; i < n; i++) {
-            const float *src = &e->ring[((r + i) & (RING_FRAMES - 1)) * MX_CHANNELS];
-            for (int c = 0; c < MX_CHANNELS; c++) planes[c][i] = src[c];
+            const float *src = &e->ring[((r + i) & (RING_FRAMES - 1)) * REC_TRACKS];
+            for (int c = 0; c < e->rec_tracks; c++) planes[c][i] = src[c];
         }
         atomic_store_explicit(&e->ring_r, r + n, memory_order_release);
-        for (int c = 0; c < MX_CHANNELS; c++) {
+        for (int c = 0; c < e->rec_tracks; c++) {
             AudioBufferList l = {1, {{1, n * (UInt32)sizeof(float), planes[c]}}};
             ExtAudioFileWrite(e->files[c], n, &l);
         }
@@ -950,8 +971,9 @@ static void *rec_main(void *arg) {
     return NULL;
 }
 
-int mx_engine_record_start(mx_engine *e, const char *dir) {
+int mx_engine_record_start(mx_engine *e, const char *dir, bool jacks) {
     if (e->rec_thread_live) return MX_ERR_ALREADY;
+    e->rec_tracks = jacks ? REC_TRACKS : MX_CHANNELS;
     double fs = e->fs;
     AudioStreamBasicDescription file = {
         .mSampleRate = fs, .mFormatID = kAudioFormatLinearPCM,
@@ -964,9 +986,10 @@ int mx_engine_record_start(mx_engine *e, const char *dir) {
         .mBytesPerPacket = 4, .mFramesPerPacket = 1, .mBytesPerFrame = 4,
         .mChannelsPerFrame = 1, .mBitsPerChannel = 32};
 
-    for (int c = 0; c < MX_CHANNELS; c++) {
+    for (int c = 0; c < e->rec_tracks; c++) {
         char path[1024];
-        snprintf(path, sizeof path, "%s/in%d.wav", dir, c + 1);
+        if (c < MX_CHANNELS) snprintf(path, sizeof path, "%s/in%d.wav", dir, c + 1);
+        else snprintf(path, sizeof path, "%s/jack%d.wav", dir, c - MX_CHANNELS + 1);
         CFURLRef url = CFURLCreateFromFileSystemRepresentation(
             NULL, (const UInt8 *)path, (CFIndex)strlen(path), false);
         OSStatus err = ExtAudioFileCreateWithURL(url, kAudioFileWAVEType, &file, NULL,
@@ -987,6 +1010,7 @@ int mx_engine_record_start(mx_engine *e, const char *dir) {
     atomic_store(&e->ring_r, 0);
     atomic_store(&e->ring_w, 0);
     atomic_store(&e->recorded_frames, 0);
+    atomic_store(&e->rec_origin, 0);
     atomic_store(&e->rec_overflows, 0);
     atomic_store(&e->rec_stop, false);
     pthread_create(&e->rec_thread, NULL, rec_main, e);
@@ -1001,8 +1025,12 @@ void mx_engine_record_stop(mx_engine *e) {
     atomic_store(&e->rec_stop, true);
     pthread_join(e->rec_thread, NULL);
     e->rec_thread_live = false;
-    for (int c = 0; c < MX_CHANNELS; c++) {
+    for (int c = 0; c < REC_TRACKS; c++) {
         if (e->files[c]) ExtAudioFileDispose(e->files[c]);
         e->files[c] = NULL;
     }
+}
+
+double mx_engine_record_origin(mx_engine *e) {
+    return atomic_load_explicit(&e->rec_origin, memory_order_relaxed);
 }

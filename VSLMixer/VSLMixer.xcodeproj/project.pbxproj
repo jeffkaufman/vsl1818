@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		192546F585C1F7C9ADF7FB48 /* ChannelEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90EA1BDA7BF9396FDB666E11 /* ChannelEditor.swift */; };
 		298147434C2DFA3F5153B897 /* Spectrum.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83E8667764CB34337AF8045F /* Spectrum.swift */; };
+		2A373AD2E6CE6ECAFB24C299 /* MidiRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1F01D360A148F904EC3C8F9 /* MidiRecorder.swift */; };
 		326EAD56022BE75F95452ADE /* RemoteServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E0DFCF52D113E3201DDABDA /* RemoteServer.swift */; };
 		431C4883541EA5EA5A3E7B4B /* SetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CAD59A8D2884FB5F2B742EF /* SetupView.swift */; };
 		4603788D788AB94B49E01462 /* VSLMixerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1397C412A225382AEE6B5D1F /* VSLMixerApp.swift */; };
@@ -38,6 +39,7 @@
 		90EA1BDA7BF9396FDB666E11 /* ChannelEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelEditor.swift; sourceTree = "<group>"; };
 		97F20EAB97230A4FFA664619 /* Remote */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Remote; sourceTree = SOURCE_ROOT; };
 		9CAD59A8D2884FB5F2B742EF /* SetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupView.swift; sourceTree = "<group>"; };
+		B1F01D360A148F904EC3C8F9 /* MidiRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MidiRecorder.swift; sourceTree = "<group>"; };
 		B70ACB1000F3175853342805 /* BridgingHeader.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = BridgingHeader.h; sourceTree = "<group>"; };
 		C00A84D438A36AC9BA1F0524 /* VSLMixer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VSLMixer.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C0AE8066A9AAF60F1B6B4D8A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -84,6 +86,7 @@
 				F7C195680883985036E5C05A /* Controls.swift */,
 				8DFD6DF1F67D4468A8A9884B /* FeedbackView.swift */,
 				C0AE8066A9AAF60F1B6B4D8A /* Info.plist */,
+				B1F01D360A148F904EC3C8F9 /* MidiRecorder.swift */,
 				769014BB8CE357000E0FAF02 /* MixerView.swift */,
 				28BC57E3B34DBFA3A2DD7388 /* Model.swift */,
 				4B60ADA679F4846CB65B9811 /* PhonesView.swift */,
@@ -171,6 +174,7 @@
 				192546F585C1F7C9ADF7FB48 /* ChannelEditor.swift in Sources */,
 				900FD2B85E04C4EE5A5927E6 /* Controls.swift in Sources */,
 				CBDED7A379F5D732D9AD5691 /* FeedbackView.swift in Sources */,
+				2A373AD2E6CE6ECAFB24C299 /* MidiRecorder.swift in Sources */,
 				A7C0F0ED1ED0858FEA2F8396 /* MixerView.swift in Sources */,
 				8ECFD268EAE5AB05FFB32314 /* Model.swift in Sources */,
 				9DC1975726937519DADFE27A /* PhonesView.swift in Sources */,

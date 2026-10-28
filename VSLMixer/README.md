@@ -123,7 +123,8 @@ touches the Swift runtime.
 - The UI hands over channel settings through a per-channel seqlock; gains,
   mutes and masters are atomics, smoothed over ~5 ms on the IO thread.
 - Recording copies raw inputs into a lock-free ring buffer (~5 s); a writer
-  thread drains it to eight mono 24-bit WAVs via ExtAudioFile.
+  thread drains it to eight mono 24-bit WAVs via ExtAudioFile (ten with
+  Jammer linked; see below).
 - The IO thread keeps the last 4096 samples of every input and every mix
   sum (before processing) for the EQ editor's spectrum; `Spectrum.swift`
   FFTs it with Accelerate at 30 Hz, only while an EQ editor is open.  The
@@ -251,6 +252,38 @@ device's inputs), and its main left and right come into the mixer as inputs
 Meters, spectra and recordings all see Jammer there.  Turning it on renames
 inputs 1 and 2 to "Jammer L" and "Jammer R" if they still have their default
 names.
+
+Recording while it's on also keeps what Jammer was fed, so a take could be
+run through Jammer again later:
+
+- The jacks themselves, as "09 In 1 (jack).wav" and "10 In 2 (jack).wav",
+  alongside "01 Jammer L" and "02 Jammer R".  The IO proc copies them
+  aside before the ring replaces them (`mx_engine_record_start`'s `jacks`).
+- "Jammer MIDI.mid", what was played on every MIDI device
+  (`MidiRecorder.swift`): CoreMIDI lets any number of apps read a device, so
+  this listens to Jammer's pedals, breath controller and piano directly
+  rather than through Jammer.  A format 1 file, a track per device, channel
+  messages only (no clock or SysEx), 960 ticks per quarter at 120 bpm.
+  Jammer publishes what's done on the laptop or by voice (key strikes,
+  the root note, spoken modes and chord numbers) as a virtual source,
+  "Jammer Keys", so that's a track too; jammer's README has the encoding.
+  So that a recording started partway through a set knows what came
+  before, starting one sends CC 119 on channel 16 from VSL Mixer's own
+  source, "VSL Mixer" (made as soon as Jammer is linked, so Jammer has
+  found it by then, and not recorded), and Jammer answers with everything
+  it has logged since launch, between markers.  With the jack tracks, that's
+  everything `jammer-mac --render` needs to play the recording, MIDI edited
+  or not, back through Jammer for new audio.  Events are written in time order, not arrival
+  order, since Jammer stamps a key's note off ahead.
+  Each event is timed by where the recording had got to when it arrived:
+  `mx_engine_record_origin` is the host time of the recording's first frame,
+  refreshed every IO cycle from the input timestamp, so timing follows the
+  box's clock and doesn't drift over a set.  Notes Jammer makes itself
+  (whistle, breath mic, keypad) aren't MIDI from a device and aren't in it;
+  they're in its audio.
+- Tested with the box and a virtual MIDI source: events land within a
+  fraction of a millisecond of where the host clock puts them, and the jack
+  tracks hold the jacks while in1/in2 hold Jammer.
 
 - Jammer does this whenever its audio output is the AudioBox.  It opens the
   box for output, which keeps it on the box's clock, writes silence to the

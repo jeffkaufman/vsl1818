@@ -165,7 +165,9 @@ struct RecordButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help("Record every input, before any processing, to its own WAV file")
+        .help(app.session.jammerLink == true
+              ? "Record every input, before any processing, to its own WAV file, plus jacks 1 and 2 under Jammer and the MIDI played into it"
+              : "Record every input, before any processing, to its own WAV file")
         .confirmationDialog("Stop recording?", isPresented: $confirmStop) {
             Button("Stop recording", role: .destructive) { app.toggleRecording() }
             Button("Keep recording", role: .cancel) {}
