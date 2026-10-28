@@ -82,19 +82,20 @@ def passcode():
 def snapshot(board):
     board.pump(0.2)
     s = board.state
-    return {"mixes": [(m["sends"][:], m["master"]) for m in s["mixes"]],
+    return {"mixes": [(m["sends"][:], m["master"], m["pans"][:]) for m in s["mixes"]],
             "inputs": [(i["muted"], dict(i["fx"])) for i in s["inputs"]]}
 
 
 def restore(board, snap):
-    for m, (sends, master) in enumerate(snap["mixes"]):
+    for m, (sends, master, pans) in enumerate(snap["mixes"]):
         for c, pos in enumerate(sends):
             board.send(t="send", mix=m, ch=c, pos=pos)
+            board.send(t="pan", mix=m, ch=c, pan=pans[c])
         board.send(t="master", mix=m, pos=master)
     for c, (muted, fx) in enumerate(snap["inputs"]):
         board.send(t="mute", ch=c, on=muted)
         board.send(t="channel", ch=c, set=fx)
-    board.pump(0.5)
+    board.pump(1.0)
 
 
 def protocol_tests(code):
@@ -135,17 +136,28 @@ def protocol_tests(code):
     aux.pump(0.3)
     check("positions are clamped to 0…1", aux.state["mixes"][2]["sends"][3] == 1.0)
 
+    aux.send(t="pan", mix=2, ch=3, pan=-0.4)
+    aux.send(t="pan", mix=2, ch=4, pan=-5)
+    aux.send(t="pan", mix=4, ch=3, pan=0.7)
+    aux.pump(0.3)
+    pans = aux.state["mixes"][2]["pans"]
+    check("aux can pan its own mix", abs(pans[3] + 0.4) < 1e-3, pans)
+    check("pans are clamped to −1…1", pans[4] == -1, pans)
+    check("aux can't pan another aux", aux.state["mixes"][4]["pans"][3] != 0.7)
+
     uses = [m["use"] for m in aux.state["mixes"]]
+    stereo = [m["stereo"] for m in aux.state["mixes"]]
+    want = ["none" if m % 2 and stereo[m - 1] else "main" if m == 0 and stereo[0] else "aux"
+            for m in range(8)]
+    check("mix uses follow the linked pairs", uses == want, (uses, stereo))
+    check("only even mixes are stereo", not any(stereo[1::2]), stereo)
     if uses[1] == "none":   # Main drives outs 1 and 2, so there's no Aux 2
-        check("main paired: mix uses", uses == ["main", "none"] + ["aux"] * 6, uses)
         ghost = Phone(role="aux", mix=1)
         before = ghost.state["mixes"][1]["sends"][3]
         ghost.send(t="send", mix=1, ch=3, pos=0.123)
         ghost.pump(0.3)
         check("unused Aux 2 can't be taken", ghost.state["mixes"][1]["sends"][3] == before)
         ghost.close()
-    else:
-        check("main split: mix uses", uses == ["aux"] * 8, uses)
 
     wrong = Phone(role="board", code="nope")
     check("wrong passcode is denied", wrong.denied and not wrong.state["board"])
@@ -197,9 +209,14 @@ def ui_tests(code, shots):
                 if shots:
                     page.screenshot(path=os.path.join(shots, f"{name}-{label}.png"))
 
+            viewer = Phone(role="viewer")
+            uses = [m["use"] for m in viewer.state["mixes"]]
+            viewer.close()
+            shown = [m for m, u in enumerate(uses) if u != "none"]
             page.goto(HTTP + "/")
             page.wait_for_selector(".mixbtn")
-            check(f"{name}: landing lists 6 auxes", page.locator(".mixbtn").count() == 6)
+            auxes = uses.count("aux")
+            check(f"{name}: landing lists {auxes} auxes", page.locator(".mixbtn").count() == auxes)
             shot("landing")
 
             page.goto(HTTP + "/#aux/3")
@@ -251,12 +268,34 @@ def ui_tests(code, shots):
             page.click(".primary")
             page.wait_for_selector(".chips .chip")
             page.wait_for_timeout(300)
-            check(f"{name}: board shows 7 outputs", page.locator(".chip").count() == 7)
+            check(f"{name}: board shows {len(shown)} outputs", page.locator(".chip").count() == len(shown))
             check(f"{name}: board rows have mute buttons", page.locator(".list .mutebtn").count() == 8)
             shot("board")
-            page.locator(".chip").nth(3).click()   # Main, Aux 3, Aux 4, Aux 5 (mix 4)
+            # Main is stereo while outs 1+2 are linked (the default): each row gets a pan.
+            spy = Phone(role="board", code=code)
+            if spy.state["mixes"][0]["stereo"]:
+                check(f"{name}: stereo main has a pan per input", page.locator(".list .panrow").count() == 8)
+                fits = page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+                check(f"{name}: pans fit without sideways scrolling", fits)
+                box = page.locator(".list .pan").first.bounding_box()
+                x0, y0 = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+                page.mouse.move(x0, y0)
+                page.mouse.down()
+                for i in range(1, 11):
+                    page.mouse.move(x0 - i * box["width"] * 0.03, y0)
+                    page.wait_for_timeout(16)
+                page.mouse.up()
+                spy.pump(0.5)
+                pan = spy.state["mixes"][0]["pans"][0]
+                check(f"{name}: dragging a pan left pans left", pan < -0.3, pan)
+                shot("board-pan")
+                page.locator(".list .panval").first.click()
+                spy.pump(0.4)
+                check(f"{name}: tapping the readout centers it", spy.state["mixes"][0]["pans"][0] == 0)
+            spy.close()
+            page.locator(".chip").nth(3).click()
             page.wait_for_timeout(300)
-            check(f"{name}: picking an output changes the URL", page.url.endswith("#board/mix/4"))
+            check(f"{name}: picking an output changes the URL", page.url.endswith(f"#board/mix/{shown[3]}"))
             shot("board-aux3")
 
             page.locator(".list a.name").first.click()
@@ -335,8 +374,12 @@ def main():
     finally:
         board = Phone(role="board", code=code)
         restore(board, snap)
-        after = json.loads(json.dumps(snapshot(board)))
-        ok = after == snap
+        # The app works through the restore one message at a time.
+        for _ in range(25):
+            after = json.loads(json.dumps(snapshot(board)))
+            ok = after == snap
+            if ok:
+                break
         check("board restored to how it was", ok)
         board.close()
         if ok:

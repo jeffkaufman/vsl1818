@@ -242,7 +242,7 @@ struct ScenesMenu: View {
                 .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty || app.isReserved(draft))
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Saves every level, EQ, compressor, mute and name. Using an existing name replaces that scene. “\(AppState.blankScene)” and “\(AppState.previousScene)” are taken.")
+            Text("Saves every level, pan, EQ, compressor, limit, mute and name, and which outs are linked. Using an existing name replaces that scene. “\(AppState.blankScene)” and “\(AppState.previousScene)” are taken.")
         }
         .alert("Delete “\(toDelete ?? "")”?", isPresented: Binding(get: { toDelete != nil }, set: { if !$0 { toDelete = nil } })) {
             Button("Delete", role: .destructive) { if let n = toDelete { app.deleteScene(named: n) } }
@@ -328,6 +328,9 @@ struct ChannelStrip: View {
         let name = Binding(
             get: { app.session.channels[index].name },
             set: { app.session.channels[index].name = $0 })
+        let pan = Binding(
+            get: { app.session.mixes[mix].pans[index] },
+            set: { app.session.mixes[mix].pans[index] = $0 })
 
         VStack(alignment: .leading, spacing: 10 * k) {
             VStack(alignment: .leading, spacing: 1 * k) {
@@ -343,6 +346,10 @@ struct ChannelStrip: View {
             HStack(spacing: 8 * k) {
                 // Only this box belongs to the selected output.
                 VStack(spacing: 8 * k) {
+                    if app.session.isStereo(mix) {
+                        PanControl(value: pan, tint: theme.ink,
+                                   accessibilityName: "\(ch.name) pan in \(app.session.mixes[mix].name)")
+                    }
                     FaderView(value: level, tint: theme.ink,
                               accessibilityName: "\(ch.name) level in \(app.session.mixes[mix].name)")
                     Text(FaderScale.label(level.wrappedValue))
@@ -395,9 +402,12 @@ struct MasterStrip: View {
                             reference: UnityLine(), curve: MiniCompShape(settings: fx),
                             help: "Edit \(name) compressor") { app.route = .comp(.output(mix)) }
             DelayButton(mix: mix)
+            LimitButton(mix: mix)
             HStack(spacing: 8 * k) {
                 FaderView(value: level, tint: theme.ink, accessibilityName: "\(name) level")
-                MeterWithClip(db: app.meters.mix[mix], clipped: Binding(
+                let stereo = app.session.isStereo(mix)
+                MeterWithClip(db: stereo ? app.meters.out[mix] : app.meters.mix[mix],
+                              right: stereo ? app.meters.out[mix + 1] : nil, clipped: Binding(
                     get: { app.meters.mixClipped[mix] }, set: { app.meters.mixClipped[mix] = $0 }),
                     what: name)
             }
@@ -499,5 +509,83 @@ struct DelayEditor: View {
                 .frame(width: 64)
             Text(unit).foregroundStyle(.secondary)
         }
+    }
+}
+
+/// An output's limiter ceiling, with a bar for how hard it's limiting; click
+/// to change it.
+struct LimitButton: View {
+    @Environment(\.uiScale) private var k
+    @Environment(AppState.self) private var app
+    let mix: Int
+    @State private var editing = false
+
+    var body: some View {
+        let db = app.session.mixes[mix].limitDb
+        let gr = app.meters.limit[mix]
+        let theme = Theme.mixes[mix]
+        Button { editing = true } label: {
+            HStack(spacing: 6 * k) {
+                Text("Limit").font(.system(size: 11 * k)).foregroundStyle(Theme.secondary)
+                    .frame(width: 34 * k, alignment: .leading)
+                Spacer(minLength: 0)
+                Text(signedDb(db)).uiFont(11, .semibold, mono: true).foregroundStyle(theme.ink)
+            }
+            .padding(.horizontal, 7 * k).frame(height: 34 * k)
+            .background(RoundedRectangle(cornerRadius: 8 * k).fill(Color.black.opacity(0.35)))
+            .overlay(alignment: .bottomTrailing) {
+                // Gain reduction grows from the right, 0…12 dB.
+                GeometryReader { g in
+                    Capsule().fill(Theme.gr)
+                        .frame(width: g.size.width * min(1, gr / 12), height: 3 * k)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                }
+                .padding(.horizontal, 7 * k).padding(.bottom, 4 * k)
+                .opacity(gr >= 0.1 ? 1 : 0)
+            }
+            .overlay(RoundedRectangle(cornerRadius: 8 * k).stroke(Theme.control))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Nothing leaves \(app.session.mixes[mix].name) above \(signedDb(db))FS. The orange bar shows it limiting.")
+        .accessibilityLabel("\(app.session.mixes[mix].name) limit")
+        .accessibilityValue(signedDb(db))
+        .popover(isPresented: $editing, arrowEdge: .leading) { LimitEditor(mix: mix) }
+    }
+}
+
+struct LimitEditor: View {
+    @Environment(AppState.self) private var app
+    let mix: Int
+
+    var body: some View {
+        let r = Mix.limitRange
+        let limit = Binding(
+            get: { app.session.mixes[mix].limitDb },
+            set: { app.session.mixes[mix].limitDb = min(r.upperBound, max(r.lowerBound, ($0 * 10).rounded() / 10)) })
+        VStack(alignment: .leading, spacing: 12) {
+            Text("\(app.session.mixes[mix].name) limiter").font(.headline)
+            Text("Nothing leaves this output louder than this, however loud a feedback squeal or a dropped mic gets. It acts instantly and adds no delay. For in-ear monitors, keep it on and set each pack's volume so this level is as loud as is safe.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+                Button { limit.wrappedValue = (limit.wrappedValue - 1).rounded() } label: { Image(systemName: "minus") }
+                    .accessibilityLabel("1 dB lower")
+                Slider(value: limit, in: r)
+                Button { limit.wrappedValue = (limit.wrappedValue + 1).rounded() } label: { Image(systemName: "plus") }
+                    .accessibilityLabel("1 dB higher")
+            }
+            HStack(spacing: 4) {
+                TextField("dB", value: limit, format: .number.precision(.fractionLength(1)))
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 64)
+                Text("dBFS").foregroundStyle(.secondary)
+                Spacer()
+                Button("Default (\(signedDb(Mix.defaultLimitDb, digits: 0)))") { limit.wrappedValue = Mix.defaultLimitDb }
+                    .disabled(limit.wrappedValue == Mix.defaultLimitDb)
+            }
+        }
+        .padding(16)
+        .frame(width: 320)
     }
 }

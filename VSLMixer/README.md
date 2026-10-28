@@ -3,7 +3,9 @@
 A low-latency Mac mixer for the PreSonus AudioBox 1818VSL, replacing the
 discontinued PreSonus VSL software.  Eight inputs, each with high-pass, 3-band
 EQ and a compressor, mixed to Main (outs 1+2) and six mono auxes (outs 3–8),
-or, with Main split, eight mono auxes, plus raw multitrack recording.
+plus raw multitrack recording.  Any pair of outs (1+2, 3+4, 5+6, 7+8) can be
+one stereo mix with a pan per input, for in-ear monitors, or two mono ones.
+Every output ends in a limiter.
 
 ## Background: there is no DSP in the box
 
@@ -88,11 +90,34 @@ touches the Swift runtime.
   compressor, mute) before its master.  Inputs and mixes share the code as
   "strips".  After its master, each mix can be delayed up to 250 ms (to
   line up with distant speakers; the UI shows ms and feet at 1.125 ft/ms);
-  changes crossfade over 256 samples so they don't click.  Mix m drives out
-  m+1, except that by default Main (mix 0) is mono and drives outs 1 and 2,
-  and mix 1 is unused.  **Outs 1 and 2 as Aux 1 and Aux 2** in Setup
-  (`Session.splitMain`, `mx_engine_set_split_main`) splits them.
-  Outputs 9–18 are silent.
+  changes crossfade over 256 samples so they don't click.  Last comes a
+  limiter (below).  Outputs 9–18 are silent.
+- Mix m drives out m+1, except in a **linked pair** (Setup › Outputs,
+  `Session.linkedPairs`, `mx_engine_set_linked`): then mix 2p is stereo, left
+  on out 2p+1 and right on 2p+2, and mix 2p+1 is unused.  Outs 1+2 start
+  linked, as Main; the others start as mono auxes.  A stereo mix runs its
+  EQ on both sides and compresses and limits them together, from the louder
+  side, so the image doesn't move.  Changing a pair's link fades it out and
+  back in (~40 ms) so it can't pop in anyone's ears.
+- Linking and unlinking are neutral (`Session.link`): linking turns each
+  input's two mono sends (a, b, after the masters) into one send
+  √((a²+b²)/2) and the pan at angle atan2(b, a), which plays exactly a and
+  b; unlinking splits them back, and the even out's mix takes the stereo
+  mix's master, processing, delay and limit.  What can't carry over: the
+  even out's own EQ, compressor, delay and limit when linking, and levels
+  past the faders' ends (under −20 dB is off, over +10 dB clamps).
+- Pan is per mix and per input (`Mix.pans`, `mx_engine_set_pan`), so each
+  musician places things where they like.  Constant power, normalized so
+  center is exactly unity on both sides (an unpanned stereo mix is
+  bit-identical to the old mono Main) and hard left or right is +3 dB.
+  Within 3% of center it snaps there.
+- The limiter (`Mix.limitDb`, `mx_engine_set_mix_limit`) has instant attack,
+  no lookahead and a 100 ms release, so it adds no latency and nothing gets
+  past the ceiling, at the cost of some distortion when it's hit hard.  It
+  defaults to −6 dBFS on every output, sessions from before it included,
+  so a feedback squeal or dropped mic can't reach full volume in someone's
+  ears; set each in-ear pack's volume with it in place.  0 dBFS is
+  effectively off.  It's Mac-only: phones can't raise it.
 - Sections that are flat (high-pass at 20 Hz, all EQ gains 0, ratio 1:1 with
   no makeup) are skipped, so they're bit-exact passthrough.
 - The UI hands over channel settings through a per-channel seqlock; gains,
@@ -136,25 +161,32 @@ touches the Swift runtime.
   versions (which had on/off switches), so old sessions and scenes keep
   loading.  Keep that up when adding fields.
 - Scenes live in `Application Support/VSL Mixer/Scenes/*.json`.  "Blank
-  board" is built in (defaults, including names).  Every load first saves the
+  board" is built in (defaults, including names): outs 1+2 linked as
+  Main, 3–6 mono, 7+8 linked as Aux 7+8.  Every load first saves the
   current board as "Previous", so a load can be undone.
-- Auxes are named for the jack they drive, Aux N on out N, and the "Out N"
-  label is hidden while the name says it.  Phone links match: `#aux/3` is
-  Aux 3.  Mix indices (engine, protocol, `#board/mix/N`) are one less than
-  the jack.  Unless Main is split, Aux 2
-  (mix 1) is hidden everywhere: `Session.shownMixes` lists what's in use and
-  `isAux` what a phone may take.  Splitting renames "Main" to "Aux 1" (and
-  back) if it has its default name; Aux 2 keeps its own settings, which
-  start silent.  `Mix.migrateNames` renumbers names in older sessions and
-  scenes and inserts Aux 2 into ones with seven mixes (the `auxNames`
-  version).
+- Auxes are named for the jack they drive, Aux N on out N, or Aux 3+4 for
+  a linked pair, and the "Out N" label is hidden while the name says it.
+  Phone links match: `#aux/3` is Aux 3 (or 3+4; `#aux/4` leads there too).
+  Mix indices (engine, protocol, `#board/mix/N`) are one less than the jack.
+  The odd mix of a linked pair (Aux 2 while Main is linked) is hidden
+  everywhere: `Session.shownMixes` lists what's in use, `isStereo` which are
+  stereo, and `isAux` what a phone may take (anything but Main).  Linking
+  renames a default name ("Aux 1" ↔ "Main", "Aux 3" ↔ "Aux 3+4"); unlinking
+  rebuilds the hidden mix from the stereo one (above).  `Mix.migrateNames` renumbers names in
+  older sessions and scenes and inserts Aux 2 into ones with seven mixes
+  (the `auxNames` version); `Session.migrateLinks` turns the old
+  `splitMain` into `linkedPairs`.  Scenes save the linking along with
+  pans and limits, and restore it as saved (their mixes match it), not
+  converted like Setup's toggles; scenes from before that leave it alone.
 - The layout is designed at 1440×900 and scales up with the window to 1.8×
   (`uiScale` environment value, `uiFont`, and `* k` on fixed sizes).
 - UI rules from the owner: each output has its own color at equal lightness
   (OKLCH L≈0.33, chroma 0.045; Main/Aux 1 is grey, Aux 2 gold at hue 100), applied only to the output-specific parts (output buttons,
   fader boxes, the output strip with its EQ, comp and mute, and the output's
   EQ/compressor editors).  Input names, EQ, comp, meters and mute are neutral
-  because they apply to every output.  No pan.  EQ and compressor have no
+  because they apply to every output.  Pan belongs to the output, so it sits
+  in the output-colored fader box, and only while that output is stereo.
+  A stereo output's strip shows L and R meters.  EQ and compressor have no
   on/off; flat and 1:1 are the defaults.  Names are edited in place.
 
 ### Phone control
@@ -182,7 +214,7 @@ install.
   The protocol is documented at the top of that file.  Everything runs on the
   main queue; state goes out at most every 40 ms and meters 15 times a
   second, and slow phones skip meter frames.
-- Roles: `aux` clients can only move their own aux's sends and master.
+- Roles: `aux` clients can only move their own aux's sends, pans and master.
   `board` needs the passcode (`Session.remoteCode`, four digits, shown in the
   Phones sheet).  Changing the passcode drops phones that were using the old
   one.  Mute, EQ and compression are board-only because they affect every
@@ -192,7 +224,8 @@ install.
   on a list of mixes and the whole board.  The `#aux/N` and `#board` links
   still work if typed or bookmarked.
 - The page (`remote.js`) is portrait, with screens chosen by the URL hash: pick
-  a mix, your aux, the whole board (output chips plus rows with Mute), and a
+  a mix, your aux, the whole board (output chips plus rows with Mute; a
+  stereo output's rows have a pan slider, whose readout centers it), and a
   channel's EQ and compressor (touch-draggable points).  The EQ math is a port
   of the engine's filter design.  Faders drag relative to where they were, so
   a tap never jumps; the −/+ buttons step one whole dB and repeat when held.

@@ -13,14 +13,16 @@ import Network
 ///     {"t":"hello","role":"board","code":"1234"}     whole board
 ///     {"t":"send","mix":M,"ch":C,"pos":P}            fader position 0…1
 ///     {"t":"master","mix":M,"pos":P}
+///     {"t":"pan","mix":M,"ch":C,"pan":P}             −1 left … 1 right
 ///     {"t":"mute","ch":C,"on":B}                     board only
 ///     {"t":"channel","ch":C,"set":{"midDb":3,...}}   board only; see ChannelSettings.limits
 ///     {"t":"reset","ch":C,"what":"eq"|"comp"}        board only
 ///   mixer → phone
 ///     {"t":"state",...}   everything a page draws; sent on connect and on every change.
-///                         Mix M drives out M+1; each mix's "use" is "main",
-///                         "aux" (a musician can take it) or "none" (Aux 2
-///                         while Main drives both outs 1 and 2).
+///                         Mix M drives out M+1, or with "stereo" outs M+1
+///                         and M+2; each mix's "use" is "main", "aux" (a
+///                         musician can take it) or "none" (the odd out of
+///                         a linked pair).  "pans" only matter while stereo.
 ///     {"t":"m",...}       meters, 15 times a second
 ///     {"t":"denied"}      wrong passcode
 @MainActor
@@ -260,6 +262,11 @@ final class RemoteServer {
             guard let m = int("mix"), let pos = num("pos"), (0..<mixCount).contains(m), allowed(c, mix: m) else { return }
             app.session.mixes[m].master = clamp(pos)
 
+        case "pan":
+            guard let m = int("mix"), let ch = int("ch"), let pan = num("pan"), pan.isFinite,
+                  (0..<mixCount).contains(m), (0..<channelCount).contains(ch), allowed(c, mix: m) else { return }
+            app.session.mixes[m].pans[ch] = min(1, max(-1, pan))
+
         case "mute":
             guard c.role == .board, let ch = int("ch"), (0..<channelCount).contains(ch),
                   let on = msg["on"] as? Bool else { return }
@@ -347,7 +354,8 @@ final class RemoteServer {
         let mixes: [[String: Any]] = s.mixes.enumerated().map { m, mix in
             ["name": mix.name, "outs": s.jacks(ofMix: m),
              "use": !s.shownMixes.contains(m) ? "none" : s.isAux(m) ? "aux" : "main",
-             "sends": mix.sends.map(r4), "master": r4(mix.master),
+             "stereo": s.isStereo(m),
+             "sends": mix.sends.map(r4), "pans": mix.pans.map(r4), "master": r4(mix.master),
              "ground": hex(Theme.mixHex[m].ground), "ink": hex(Theme.mixHex[m].ink)]
         }
         return [

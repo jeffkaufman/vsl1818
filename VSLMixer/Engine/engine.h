@@ -10,9 +10,9 @@
 #include <stdint.h>
 
 #define MX_CHANNELS 8
-#define MX_MIXES 8     // mix m drives out m+1, except that by default mix 0
-                       // (Main) drives outs 1 and 2 and mix 1 is unused
+#define MX_MIXES 8     // mix m drives out m+1, except in a linked pair (below)
 #define MX_OUTPUTS 8
+#define MX_PAIRS 4     // outs 2p+1 and 2p+2 can be linked into one stereo mix
 #define MX_SCOPE_FRAMES 4096   // recent samples kept per source for spectra
 #define MX_MAX_DELAY_MS 250    // per-output delay, for lining up with distant speakers
 
@@ -78,16 +78,28 @@ void mx_engine_set_mix_delay(mx_engine *e, int mix, float ms);
 // jacks (see jammer_link.h).  Everything downstream, recording included,
 // sees Jammer there.  False if the shared memory couldn't be opened.
 bool mx_engine_set_jammer_link(mx_engine *e, bool on);
-// Splits Main into two mono mixes: mix 0 on out 1 and mix 1 on out 2.  Off
-// (the default), mix 0 drives both and mix 1 goes nowhere.
-void mx_engine_set_split_main(mx_engine *e, bool on);
+// Links outs 2p+1 and 2p+2 into one stereo mix: mix 2p, left on the first
+// and right on the second, and mix 2p+1 goes nowhere.  Unlinked, each out
+// has its own mono mix.  Pair 0 (Main) starts linked, the others not.  The
+// pair fades out and back in around a change (~40 ms), so it doesn't pop.
+void mx_engine_set_linked(mx_engine *e, int pair, bool on);
+// Where an input sits in a stereo mix, -1 (left) to 1 (right).  Center is
+// unity on both sides, and a hard pan is +3 dB on one (constant power), so
+// panning doesn't change loudness.  Ignored while the mix is mono.
+void mx_engine_set_pan(mx_engine *e, int mix, int ch, float pan);
+// The most a mix may send to its jacks, in dBFS (at most 0, the default).
+// Last in the chain, after the delay.  A peak limiter with instant attack
+// and no lookahead: nothing gets past the ceiling, and it adds no latency.
+void mx_engine_set_mix_limit(mx_engine *e, int mix, float ceiling_db);
 
 typedef struct {
     float in_peak[MX_CHANNELS];   // linear, before any processing
     float gr_db[MX_CHANNELS];     // current compressor gain reduction
     float mix_in_peak[MX_MIXES];  // linear, the sum before the mix's processing
     float mix_gr_db[MX_MIXES];
-    float mix_peak[MX_MIXES];     // linear, what goes to the jacks
+    float mix_peak[MX_MIXES];     // linear, what goes to the jacks (both, if stereo)
+    float limit_gr_db[MX_MIXES];  // most limiter gain reduction since the last read
+    float out_peak[MX_OUTPUTS];   // linear, per jack
 } mx_meters;
 
 // Peaks since the previous call, and current gain reduction.

@@ -18,6 +18,8 @@ final class Meters {
     var mixIn = Array(repeating: -120.0, count: mixCount)   // before the output's processing
     var mixGainReduction = Array(repeating: 0.0, count: mixCount)
     var mix = Array(repeating: -120.0, count: mixCount)
+    var out = Array(repeating: -120.0, count: mixCount)     // per jack
+    var limit = Array(repeating: 0.0, count: mixCount)      // limiter gain reduction, held briefly
     // Latched until clicked, so a clip mid-tune isn't missed.
     var inputClipped = Array(repeating: false, count: channelCount)
     var mixClipped = Array(repeating: false, count: mixCount)
@@ -244,6 +246,8 @@ final class AppState {
         let mixIn = withUnsafeBytes(of: raw.mix_in_peak) { Array($0.bindMemory(to: Float.self)) }
         let mixGR = withUnsafeBytes(of: raw.mix_gr_db) { Array($0.bindMemory(to: Float.self)) }
         let mix = withUnsafeBytes(of: raw.mix_peak) { Array($0.bindMemory(to: Float.self)) }
+        let out = withUnsafeBytes(of: raw.out_peak) { Array($0.bindMemory(to: Float.self)) }
+        let limit = withUnsafeBytes(of: raw.limit_gr_db) { Array($0.bindMemory(to: Float.self)) }
         // Peaks jump up immediately and fall back at 24 dB/s.
         let fall = 24.0 / 30
         func ballistic(_ old: Double, _ peak: Float) -> Double {
@@ -259,6 +263,9 @@ final class AppState {
             meters.mixIn[m] = ballistic(meters.mixIn[m], mixIn[m])
             meters.mixGainReduction[m] = Double(mixGR[m])
             meters.mix[m] = ballistic(meters.mix[m], mix[m])
+            meters.out[m] = ballistic(meters.out[m], out[m])
+            // The limiter acts in a moment; hold what it did so it can be seen.
+            meters.limit[m] = max(Double(limit[m]), meters.limit[m] - fall / 4)
             if mix[m] >= Meters.outputClipLevel && !meters.mixClipped[m] { meters.mixClipped[m] = true }
         }
         let rate = status.sampleRate > 0 ? status.sampleRate : session.sampleRate
@@ -330,7 +337,7 @@ final class AppState {
     private func pushAll() {
         let linkFailed = !mx_engine_set_jammer_link(engine, session.jammerLink == true)
         if linkFailed != jammerLinkFailed { jammerLinkFailed = linkFailed }
-        mx_engine_set_split_main(engine, session.splitMain == true)
+        for p in 0..<pairCount { mx_engine_set_linked(engine, Int32(p), session.isLinked(pair: p)) }
         for (c, ch) in session.channels.enumerated() {
             var s = ch.engineSettings
             mx_engine_set_channel(engine, Int32(c), &s)
@@ -342,8 +349,10 @@ final class AppState {
             mx_engine_set_mix_mute(engine, Int32(m), mix.processing.muted)
             mx_engine_set_mix_delay(engine, Int32(m), Float(mix.delayMs))
             mx_engine_set_master(engine, Int32(m), FaderScale.gain(mix.master))
+            mx_engine_set_mix_limit(engine, Int32(m), Float(mix.limitDb))
             for (c, pos) in mix.sends.enumerated() {
                 mx_engine_set_send(engine, Int32(m), Int32(c), FaderScale.gain(pos))
+                mx_engine_set_pan(engine, Int32(m), Int32(c), Float(mix.pans[c]))
             }
         }
     }
@@ -472,7 +481,8 @@ final class AppState {
 
     private func writeCurrent(as name: String) {
         try? FileManager.default.createDirectory(at: Self.scenesFolder, withIntermediateDirectories: true)
-        if let data = try? JSONEncoder().encode(MixerScene(channels: session.channels, mixes: session.mixes)) {
+        if let data = try? JSONEncoder().encode(MixerScene(channels: session.channels, mixes: session.mixes,
+                                                                  linkedPairs: session.linkedPairs)) {
             try? data.write(to: Self.sceneURL(name), options: .atomic)
         }
     }
@@ -480,7 +490,8 @@ final class AppState {
     func loadScene(named name: String) {
         let incoming: MixerScene
         if name == Self.blankScene {
-            incoming = MixerScene(channels: Session.initial.channels, mixes: Session.initial.mixes)
+            incoming = MixerScene(channels: Session.initial.channels, mixes: Session.initial.mixes,
+                                  linkedPairs: Session.initial.linkedPairs)
         } else {
             guard let data = try? Data(contentsOf: Self.sceneURL(name)),
                   var scene = try? JSONDecoder().decode(MixerScene.self, from: data) else { return }
@@ -494,8 +505,24 @@ final class AppState {
         var s = session
         s.channels = incoming.channels
         s.mixes = incoming.mixes
+        // The scene's mixes were saved with its linking, so it's restored
+        // as is, not converted the way Setup's toggles do.
+        if let l = incoming.linkedPairs, l.count == pairCount { s.linkedPairs = l }
+        leaveHiddenMixes(in: s)
         session = s
         refreshScenes()
+    }
+
+    /// Steps off any output that `s` doesn't show (the odd out of a linked
+    /// pair) onto the stereo mix that replaces it.
+    func leaveHiddenMixes(in s: Session) {
+        if !s.shownMixes.contains(selectedMix) { selectedMix -= 1 }
+        switch route {
+        case .eq(.output(let m)), .comp(.output(let m)):
+            if !s.shownMixes.contains(m) { route = .mixer }
+        default:
+            break
+        }
     }
 
     func deleteScene(named name: String) {
@@ -516,6 +543,7 @@ final class AppState {
               var s = try? JSONDecoder().decode(Session.self, from: data) else { return nil }
         Mix.migrateNames(&s.mixes, from: s.auxNames)
         s.auxNames = Mix.currentAuxNames
+        s.migrateLinks()
         guard s.channels.count == channelCount, s.mixes.count == mixCount,
               s.mixes.allSatisfy({ $0.sends.count == channelCount }) else { return nil }
         FaderScale.migrate(&s.mixes, from: s.faderTaper)

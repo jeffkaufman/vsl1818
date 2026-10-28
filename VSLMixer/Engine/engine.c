@@ -22,6 +22,7 @@
 #define STRIPS (MX_CHANNELS + MX_MIXES)
 #define DELAY_FRAMES (1 << 15)     // MX_MAX_DELAY_MS at up to 96 kHz
 #define DELAY_XFADE 256            // samples to crossfade when a delay changes
+#define LIMIT_RELEASE_MS 100
 
 // ---------------------------------------------------------------- filters
 
@@ -110,6 +111,7 @@ typedef struct {
     // what the IO thread is currently using
     mx_channel_settings s;
     biquad bq[BQ_COUNT];
+    biquad bq_r[BQ_COUNT];   // the right side, for a stereo mix
     float att_coef, rel_coef, inv_ratio;
     float env;          // compressor peak envelope, linear
     float mute_gain;    // smoothed
@@ -150,16 +152,24 @@ struct mx_engine {
     _Atomic float master[MX_MIXES];
     _Atomic bool muted[STRIPS];
     _Atomic float delay_ms[MX_MIXES];
-    _Atomic bool split_main;
+    _Atomic float pan[MX_MIXES][MX_CHANNELS];
+    _Atomic float limit_db[MX_MIXES];
+    _Atomic bool linked[MX_PAIRS];
 
     // ---- IO thread only
     double fs;
     float smooth;   // one-pole coefficient for gain changes
     uint32_t applied_seq[STRIPS];
     channel_rt ch[STRIPS];
-    float send_g[MX_MIXES][MX_CHANNELS];
+    float send_l[MX_MIXES][MX_CHANNELS];   // send x pan, smoothed; a mono
+    float send_r[MX_MIXES][MX_CHANNELS];   // mix uses only send_l
     float master_g[MX_MIXES];
     delay_line delay[MX_MIXES];
+    delay_line delay_r[MX_PAIRS];   // the right side of a linked pair's mix
+    bool link_cur[MX_PAIRS];        // the routing in use; follows linked[] once
+    float pair_gain[MX_PAIRS];      // the pair has faded out
+    float lim_g[MX_MIXES];          // limiter gain
+    float lim_rel;                  // limiter release, per sample
     double last_in_time;
     float in_scratch[MAX_FRAMES * MX_CHANNELS];
     float out_scratch[MAX_FRAMES * MX_OUTPUTS];
@@ -169,6 +179,8 @@ struct mx_engine {
     _Atomic float mix_in_peak[MX_MIXES];
     _Atomic float gr_db[STRIPS];
     _Atomic float mix_peak[MX_MIXES];
+    _Atomic float limit_gr[MX_MIXES];
+    _Atomic float out_peak[MX_OUTPUTS];
     float scope[MX_SCOPE_FRAMES][STRIPS];
     _Atomic uint32_t scope_w;
     _Atomic uint64_t callbacks;
@@ -228,8 +240,13 @@ static void apply_settings(mx_engine *e, int c, const mx_channel_settings *s) {
     // start clean when a section is switched on
     for (int i = 0; i < BQ_COUNT; i++) {
         bool fresh = (i == BQ_HPF) ? (s->hpf_on && !was_hpf) : (s->eq_on && !was_eq);
-        r->bq[i].z1 = fresh ? 0 : old[i].z1;
-        r->bq[i].z2 = fresh ? 0 : old[i].z2;
+        biquad *q = &r->bq[i], *qr = &r->bq_r[i];
+        double z1r = fresh ? 0 : qr->z1, z2r = fresh ? 0 : qr->z2;
+        q->z1 = fresh ? 0 : old[i].z1;
+        q->z2 = fresh ? 0 : old[i].z2;
+        *qr = *q;
+        qr->z1 = z1r;
+        qr->z2 = z2r;
     }
     double att = fmax(0.05, s->comp_attack_ms), rel = fmax(1, s->comp_release_ms);
     r->att_coef = (float)exp(-1.0 / (e->fs * att / 1000));
@@ -246,9 +263,35 @@ static int delay_frames(mx_engine *e, int m) {
     return n < DELAY_FRAMES - 1 ? n : DELAY_FRAMES - 1;
 }
 
+// Center is exactly unity on both sides, so an unpanned stereo mix is
+// bit-identical to a mono one, and a hard pan is exactly silent on the other.
+static void pan_gains(float p, float *l, float *r) {
+    if (p == 0) { *l = *r = 1; return; }
+    if (fabsf(p) >= 1) { *l = p < 0 ? (float)M_SQRT2 : 0; *r = p < 0 ? 0 : (float)M_SQRT2; return; }
+    float a = (fminf(1, fmaxf(-1, p)) + 1) * (float)M_PI / 4;
+    *l = (float)M_SQRT2 * cosf(a);
+    *r = (float)M_SQRT2 * sinf(a);
+}
+
+// Each input's send to each mix as left and right gains: panned in a stereo
+// mix, all on the left (its only side) in a mono one.
+static void send_targets(mx_engine *e, float l[MX_MIXES][MX_CHANNELS],
+                         float r[MX_MIXES][MX_CHANNELS]) {
+    for (int m = 0; m < MX_MIXES; m++) {
+        bool stereo = (m & 1) == 0 && e->link_cur[m / 2];
+        for (int c = 0; c < MX_CHANNELS; c++) {
+            float g = atomic_load_explicit(&e->send[m][c], memory_order_relaxed), pl = 1, pr = 0;
+            if (stereo) pan_gains(atomic_load_explicit(&e->pan[m][c], memory_order_relaxed), &pl, &pr);
+            l[m][c] = g * pl;
+            r[m][c] = g * pr;
+        }
+    }
+}
+
 static void reset_rt(mx_engine *e, double fs) {
     e->fs = fs;
     e->smooth = (float)(1 - exp(-1.0 / (0.005 * fs)));  // ~5 ms glide
+    e->lim_rel = (float)(1 - exp(-1.0 / (LIMIT_RELEASE_MS / 1000.0 * fs)));
     for (int c = 0; c < STRIPS; c++) {
         mx_channel_settings s = e->pending[c];
         memset(&e->ch[c], 0, sizeof e->ch[c]);
@@ -257,12 +300,19 @@ static void reset_rt(mx_engine *e, double fs) {
         e->applied_seq[c] = atomic_load(&e->seq[c]);
         e->ch[c].mute_gain = atomic_load(&e->muted[c]) ? 0 : 1;
     }
+    for (int p = 0; p < MX_PAIRS; p++) {
+        e->link_cur[p] = atomic_load(&e->linked[p]);
+        e->pair_gain[p] = 1;
+        memset(&e->delay_r[p], 0, sizeof e->delay_r[p]);
+        e->delay_r[p].cur = delay_frames(e, 2 * p);
+    }
     for (int m = 0; m < MX_MIXES; m++) {
         memset(&e->delay[m], 0, sizeof e->delay[m]);
         e->delay[m].cur = delay_frames(e, m);
         e->master_g[m] = atomic_load(&e->master[m]);
-        for (int c = 0; c < MX_CHANNELS; c++) e->send_g[m][c] = atomic_load(&e->send[m][c]);
+        e->lim_g[m] = 1;
     }
+    send_targets(e, e->send_l, e->send_r);
     e->last_in_time = -1;
     e->link_synced = false;
 }
@@ -273,6 +323,7 @@ mx_engine *mx_engine_create(void) {
     e->ring = calloc((size_t)RING_FRAMES * MX_CHANNELS, sizeof(float));
     if (!e->ring) { free(e); return NULL; }
     for (int c = 0; c < STRIPS; c++) e->pending[c] = default_settings();
+    atomic_store(&e->linked[0], true);   // Main on outs 1 and 2
     memset(e->scope, 0, sizeof e->scope);   // touch it now, not on the IO thread
     reset_rt(e, 48000);
     return e;
@@ -317,7 +368,15 @@ void mx_engine_set_mix_delay(mx_engine *e, int m, float ms) {
     if (m >= 0 && m < MX_MIXES) atomic_store(&e->delay_ms[m], ms);
 }
 
-void mx_engine_set_split_main(mx_engine *e, bool on) { atomic_store(&e->split_main, on); }
+void mx_engine_set_linked(mx_engine *e, int p, bool on) {
+    if (p >= 0 && p < MX_PAIRS) atomic_store(&e->linked[p], on);
+}
+void mx_engine_set_pan(mx_engine *e, int m, int c, float pan) {
+    if (m >= 0 && m < MX_MIXES && c >= 0 && c < MX_CHANNELS) atomic_store(&e->pan[m][c], pan);
+}
+void mx_engine_set_mix_limit(mx_engine *e, int m, float db) {
+    if (m >= 0 && m < MX_MIXES) atomic_store(&e->limit_db[m], db);
+}
 
 void mx_engine_set_post_hook(mx_engine *e, mx_post_hook hook, void *ctx) {
     e->hook = hook;
@@ -354,48 +413,77 @@ static void record_block(mx_engine *e, const float *in, int in_stride, int frame
     if (n < frames) atomic_fetch_add(&e->rec_overflows, 1);
 }
 
-// High-pass, EQ and compressor; mute is applied by the caller.
-static inline float run_strip(channel_rt *r, float x, float *grmax) {
-    if (r->s.hpf_on) x = bq_run(&r->bq[BQ_HPF], x);
-    if (r->s.eq_on) {
-        x = bq_run(&r->bq[BQ_LOW], x);
-        x = bq_run(&r->bq[BQ_MID], x);
-        x = bq_run(&r->bq[BQ_HIGH], x);
-    }
-    if (r->s.comp_on) {
-        float lvl = fabsf(x);
-        float coef = lvl > r->env ? r->att_coef : r->rel_coef;
-        r->env = lvl + coef * (r->env - lvl);
-        float over = 20.f * log10f(r->env + 1e-9f) - r->s.comp_threshold_db;
-        float gr = over > 0 ? over * (1.f - r->inv_ratio) : 0.f;
-        if (gr > *grmax) *grmax = gr;
-        x *= powf(10.f, (r->s.comp_makeup_db - gr) * 0.05f);
+static inline float run_filters(biquad *bq, const mx_channel_settings *s, float x) {
+    if (s->hpf_on) x = bq_run(&bq[BQ_HPF], x);
+    if (s->eq_on) {
+        x = bq_run(&bq[BQ_LOW], x);
+        x = bq_run(&bq[BQ_MID], x);
+        x = bq_run(&bq[BQ_HIGH], x);
     }
     return x;
+}
+
+// Compressor gain, linear, for a detector level.
+static inline float comp_gain(channel_rt *r, float lvl, float *grmax) {
+    float coef = lvl > r->env ? r->att_coef : r->rel_coef;
+    r->env = lvl + coef * (r->env - lvl);
+    float over = 20.f * log10f(r->env + 1e-9f) - r->s.comp_threshold_db;
+    float gr = over > 0 ? over * (1.f - r->inv_ratio) : 0.f;
+    if (gr > *grmax) *grmax = gr;
+    return powf(10.f, (r->s.comp_makeup_db - gr) * 0.05f);
+}
+
+// High-pass, EQ and compressor; mute is applied by the caller.
+static inline float run_strip(channel_rt *r, float x, float *grmax) {
+    x = run_filters(r->bq, &r->s, x);
+    if (r->s.comp_on) x *= comp_gain(r, fabsf(x), grmax);
+    return x;
+}
+
+// The same for a stereo mix.  Both sides are compressed together, from the
+// louder one, so the image doesn't shift.
+static inline void run_strip_stereo(channel_rt *r, float *l, float *rt, float *grmax) {
+    *l = run_filters(r->bq, &r->s, *l);
+    *rt = run_filters(r->bq_r, &r->s, *rt);
+    if (r->s.comp_on) {
+        float g = comp_gain(r, fmaxf(fabsf(*l), fabsf(*rt)), grmax);
+        *l *= g;
+        *rt *= g;
+    }
 }
 
 void mx_engine_process(mx_engine *e, const float *in, int in_stride, float *out,
                        int out_stride, int frames) {
     pick_up_settings(e);
 
-    float mute_t[STRIPS], send_t[MX_MIXES][MX_CHANNELS], master_t[MX_MIXES];
+    // A pair whose linking changed fades out, switches, and fades back in.
+    float pair_t[MX_PAIRS];
+    for (int p = 0; p < MX_PAIRS; p++) {
+        bool want = atomic_load_explicit(&e->linked[p], memory_order_relaxed);
+        if (want != e->link_cur[p] && e->pair_gain[p] < 1e-3f) e->link_cur[p] = want;
+        pair_t[p] = want == e->link_cur[p] ? 1.f : 0.f;
+    }
+
+    float mute_t[STRIPS], sl_t[MX_MIXES][MX_CHANNELS], sr_t[MX_MIXES][MX_CHANNELS];
+    float master_t[MX_MIXES], ceiling[MX_MIXES];
     int delay_t[MX_MIXES];
     for (int c = 0; c < STRIPS; c++)
         mute_t[c] = atomic_load_explicit(&e->muted[c], memory_order_relaxed) ? 0.f : 1.f;
     for (int m = 0; m < MX_MIXES; m++) {
         master_t[m] = atomic_load_explicit(&e->master[m], memory_order_relaxed);
         delay_t[m] = delay_frames(e, m);
-        for (int c = 0; c < MX_CHANNELS; c++)
-            send_t[m][c] = atomic_load_explicit(&e->send[m][c], memory_order_relaxed);
+        float db = atomic_load_explicit(&e->limit_db[m], memory_order_relaxed);
+        ceiling[m] = db < 0 ? powf(10.f, db * 0.05f) : 1.f;
     }
+    send_targets(e, sl_t, sr_t);
 
     if (atomic_load_explicit(&e->recording, memory_order_relaxed))
         record_block(e, in, in_stride, frames);
 
-    const bool split = atomic_load_explicit(&e->split_main, memory_order_relaxed);
     const float k = e->smooth;
     float inpk[MX_CHANNELS] = {0}, grmax[STRIPS] = {0}, mixinpk[MX_MIXES] = {0},
-          mixpk[MX_MIXES] = {0};
+          mixpk[MX_MIXES] = {0}, limmin[MX_MIXES], outpk[MX_OUTPUTS] = {0};
+    for (int m = 0; m < MX_MIXES; m++) limmin[m] = 1;
     uint32_t sw = atomic_load_explicit(&e->scope_w, memory_order_relaxed);
 
     for (int i = 0; i < frames; i++) {
@@ -412,27 +500,56 @@ void mx_engine_process(mx_engine *e, const float *in, int in_stride, float *out,
             y[c] = x * r->mute_gain;
         }
 
+        for (int p = 0; p < MX_PAIRS; p++) e->pair_gain[p] += k * (pair_t[p] - e->pair_gain[p]);
+        float *o = &out[i * out_stride];
+
         for (int m = 0; m < MX_MIXES; m++) {
-            int st = MX_CHANNELS + m;
+            int st = MX_CHANNELS + m, p = m / 2;
+            bool even = (m & 1) == 0, stereo = even && e->link_cur[p];
             channel_rt *r = &e->ch[st];
-            float acc = 0;
+            float l = 0, rt = 0;
             for (int c = 0; c < MX_CHANNELS; c++) {
-                e->send_g[m][c] += k * (send_t[m][c] - e->send_g[m][c]);
-                acc += y[c] * e->send_g[m][c];
+                e->send_l[m][c] += k * (sl_t[m][c] - e->send_l[m][c]);
+                e->send_r[m][c] += k * (sr_t[m][c] - e->send_r[m][c]);
+                l += y[c] * e->send_l[m][c];
+                rt += y[c] * e->send_r[m][c];
             }
-            scope[st] = acc;
-            float ai = fabsf(acc);
+            if (!stereo) rt = 0;
+            scope[st] = stereo ? 0.5f * (l + rt) : l;
+            float ai = fmaxf(fabsf(l), fabsf(rt));
             if (ai > mixinpk[m]) mixinpk[m] = ai;
-            acc = run_strip(r, acc, &grmax[st]);
+            if (stereo) run_strip_stereo(r, &l, &rt, &grmax[st]);
+            else l = run_strip(r, l, &grmax[st]);
             r->mute_gain += k * (mute_t[st] - r->mute_gain);
-            acc *= r->mute_gain;
             e->master_g[m] += k * (master_t[m] - e->master_g[m]);
-            acc *= e->master_g[m];
-            acc = delay_run(&e->delay[m], acc, delay_t[m]);
-            float a = fabsf(acc);
+            float g = r->mute_gain * e->master_g[m];
+            l = delay_run(&e->delay[m], l * g, delay_t[m]);
+            // Runs while mono too, on silence, so relinking doesn't replay
+            // old audio.
+            if (even) rt = delay_run(&e->delay_r[p], rt * g, delay_t[m]);
+
+            // Limiter: instant attack, so the output never passes the ceiling.
+            float lvl = fmaxf(fabsf(l), fabsf(rt));
+            float lg = e->lim_g[m] + e->lim_rel * (1.f - e->lim_g[m]);
+            if (lvl * lg > ceiling[m]) lg = ceiling[m] / lvl;
+            e->lim_g[m] = lg;
+            if (lg < limmin[m]) limmin[m] = lg;
+            l *= lg;
+            rt *= lg;
+            float a = fmaxf(fabsf(l), fabsf(rt));
             if (a > mixpk[m]) mixpk[m] = a;
-            if (split || m > 1) out[i * out_stride + m] = acc;
-            else if (m == 0) out[i * out_stride + 0] = out[i * out_stride + 1] = acc;
+
+            float pg = e->pair_gain[p];
+            if (stereo) {
+                o[m] = l * pg;
+                o[m + 1] = rt * pg;
+            } else if (!e->link_cur[p]) {
+                o[m] = l * pg;
+            }
+        }
+        for (int j = 0; j < MX_OUTPUTS; j++) {
+            float a = fabsf(o[j]);
+            if (a > outpk[j]) outpk[j] = a;
         }
     }
 
@@ -444,7 +561,9 @@ void mx_engine_process(mx_engine *e, const float *in, int in_stride, float *out,
     for (int m = 0; m < MX_MIXES; m++) {
         peak_max(&e->mix_in_peak[m], mixinpk[m]);
         peak_max(&e->mix_peak[m], mixpk[m]);
+        peak_max(&e->limit_gr[m], -20.f * log10f(limmin[m]));
     }
+    for (int j = 0; j < MX_OUTPUTS; j++) peak_max(&e->out_peak[j], outpk[j]);
 
     if (e->hook) e->hook(e->hook_ctx, out, out_stride, frames);
 }
@@ -460,7 +579,9 @@ void mx_engine_read_meters(mx_engine *e, mx_meters *out) {
         out->mix_in_peak[m] = atomic_exchange(&e->mix_in_peak[m], 0.f);
         out->mix_gr_db[m] = atomic_load(&e->gr_db[MX_CHANNELS + m]);
         out->mix_peak[m] = atomic_exchange(&e->mix_peak[m], 0.f);
+        out->limit_gr_db[m] = atomic_exchange(&e->limit_gr[m], 0.f);
     }
+    for (int j = 0; j < MX_OUTPUTS; j++) out->out_peak[j] = atomic_exchange(&e->out_peak[j], 0.f);
 }
 
 void mx_engine_read_scope(mx_engine *e, int source, float out[MX_SCOPE_FRAMES]) {

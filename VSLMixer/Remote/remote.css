@@ -222,6 +222,59 @@ body.tinted .ctl { background: rgba(0, 0, 0, 0.18); }
 }
 .fader.active .thumb { background: #FFFFFF; }
 
+/* Pan, under the fader in a stereo output, in the same box. */
+.ctl.haspan { border-bottom: none; border-radius: 12px 12px 0 0; padding-bottom: 0; }
+.panrow {
+  display: flex; align-items: center; gap: 8px;
+  padding: 2px 4px 4px 14px;
+  border-radius: 0 0 12px 12px;
+  background: var(--ground);
+  border: 1.5px solid color-mix(in srgb, var(--ink) 55%, transparent);
+  border-top: none;
+}
+body.tinted .panrow { background: rgba(0, 0, 0, 0.18); }
+.panrow .lr { flex: none; font-size: 12px; color: var(--secondary); }
+.pan {
+  --q: 0.5; --lo: 0.5; --len: 0;
+  position: relative;
+  flex: 1; min-width: 0;
+  height: 34px;
+  touch-action: none;
+  cursor: grab;
+}
+.pan .line, .pan .fill {
+  position: absolute;
+  top: 50%; height: 4px; margin-top: -2px;
+  border-radius: 2px;
+}
+.pan .line { left: 14px; right: 14px; background: rgba(0, 0, 0, 0.5); }
+/* From center to the thumb, either way. */
+.pan .fill {
+  left: calc(14px + var(--lo) * (100% - 28px));
+  width: calc(var(--len) * (100% - 28px));
+  background: var(--ink);
+}
+.pan .mid { position: absolute; left: 50%; top: 8px; bottom: 8px; width: 2px; margin-left: -1px; background: rgba(255, 255, 255, 0.4); }
+.pan .thumb {
+  position: absolute;
+  top: 5px; bottom: 5px;
+  width: 28px;
+  left: calc(var(--q) * (100% - 28px));
+  border-radius: 12px;
+  background: #DCDCDE;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+.pan.active .thumb { background: #FFFFFF; }
+.panval {
+  flex: none;
+  min-width: 58px; height: 32px; padding: 0 6px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--control);
+  font-size: 14px; font-variant-numeric: tabular-nums;
+}
+.panval:disabled { opacity: 1; color: var(--secondary); }
+
 /* Meters cover a full-width gradient from the right.  On fader rows the
    input meter runs along the bottom of the fader track. */
 .fader .meter {

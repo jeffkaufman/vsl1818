@@ -2,6 +2,7 @@ import Foundation
 
 let channelCount = Int(MX_CHANNELS)
 let mixCount = Int(MX_MIXES)
+let pairCount = Int(MX_PAIRS)
 
 /// Fader positions run 0...1.  The bottom of the travel is off; everything
 /// above it covers −20…+10 dB, so the fader's length goes to useful levels.
@@ -40,8 +41,17 @@ enum FaderScale {
     }
 
     static func gain(_ position: Double) -> Float {
+        Float(linear(position))
+    }
+
+    static func linear(_ position: Double) -> Double {
         let d = db(position)
-        return d.isInfinite ? 0 : Float(pow(10, d / 20))
+        return d.isInfinite ? 0 : pow(10, d / 20)
+    }
+
+    /// Below the bottom of the scale is off; above the top, the top.
+    static func position(forGain g: Double) -> Double {
+        g > 0 ? position(forDb: 20 * log10(g)) : 0
     }
 
     static func label(_ position: Double) -> String {
@@ -77,6 +87,12 @@ enum FaderScale {
 func signedDb(_ d: Double, digits: Int = 1) -> String {
     let sign = d > 0.05 ? "+" : d < -0.05 ? "−" : ""
     return sign + String(format: "%.\(digits)f dB", abs(d))
+}
+
+/// "C", "L 40", "R 100".
+func panLabel(_ p: Double) -> String {
+    let n = Int((abs(p) * 100).rounded())
+    return n == 0 ? "C" : (p < 0 ? "L \(n)" : "R \(n)")
 }
 
 func hzLabel(_ f: Double) -> String {
@@ -198,9 +214,64 @@ struct Mix: Codable, Equatable {
     // Its name is unused.
     var processing = ChannelSettings(name: "")
     var delayMs = 0.0   // to line up with speakers further away
+    /// Where each input sits, −1 left … +1 right.  Only used while the mix
+    /// is stereo (its pair is linked).
+    var pans = Array(repeating: 0.0, count: channelCount)
+    /// Nothing leaves the output above this, in dBFS.
+    var limitDb = Mix.defaultLimitDb
 
     static let maxDelayMs = Double(MX_MAX_DELAY_MS)
     static let feetPerMs = 1.125   // speed of sound at about 20 °C
+
+    /// 6 dB under full scale, so a feedback squeal or a dropped mic can't
+    /// reach full volume in someone's ears.  Set the in-ear pack's volume
+    /// with this in place.
+    static let defaultLimitDb = -6.0
+    static let limitRange = -30.0...0.0
+
+    /// Within this of center, a pan snaps to it.
+    static let panDetent = 0.03
+
+    /// Left and right gains for a pan, the same law as the engine's
+    /// pan_gains: center is unity on both sides, hard left or right +3 dB.
+    static func panGains(_ p: Double) -> (l: Double, r: Double) {
+        if p == 0 { return (1, 1) }
+        if abs(p) >= 1 { return p < 0 ? (2.squareRoot(), 0) : (0, 2.squareRoot()) }
+        let a = (min(1, max(-1, p)) + 1) * .pi / 4
+        return (2.squareRoot() * cos(a), 2.squareRoot() * sin(a))
+    }
+
+    /// Makes this (the left mix of a pair) the stereo mix that plays what it
+    /// and `right` played on their two outs: each input's two sends become
+    /// one send and a pan.  Right's master is folded into the sends; its
+    /// EQ, compressor, delay and limit have no equivalent and are dropped.
+    mutating func absorb(_ right: Mix) {
+        let m0 = FaderScale.linear(master), m1 = FaderScale.linear(right.master)
+        let rightOn = right.processing.muted ? 0.0 : 1.0
+        for c in sends.indices {
+            // Gains relative to this mix's master, which the stereo mix keeps.
+            let a = FaderScale.linear(sends[c])
+            let b = FaderScale.linear(right.sends[c]) * rightOn * (m0 > 0 ? m1 / m0 : 1)
+            let pan = 4 / Double.pi * atan2(b, a) - 1
+            sends[c] = FaderScale.position(forGain: ((a * a + b * b) / 2).squareRoot())
+            pans[c] = a == 0 && b == 0 || abs(pan) < 1e-9 ? 0 : pan
+        }
+    }
+
+    /// The reverse of `absorb`: splits this stereo mix into itself, now the
+    /// left side, and returns the right side as a mix of its own, with the
+    /// same master and processing, named `name`.
+    mutating func splitOff(named name: String) -> Mix {
+        var right = self
+        right.name = name
+        for c in sends.indices {
+            let g = FaderScale.linear(sends[c]), (l, r) = Mix.panGains(pans[c])
+            sends[c] = FaderScale.position(forGain: g * l)
+            right.sends[c] = FaderScale.position(forGain: g * r)
+            right.pans[c] = 0
+        }
+        return right
+    }
 
     /// Brings mixes saved by older versions up to date.  Before version 2,
     /// auxes were numbered 1–6 rather than for their output jack, so default
@@ -219,7 +290,7 @@ struct Mix: Codable, Equatable {
         }
     }
 
-    private enum CodingKeys: String, CodingKey { case name, sends, master, processing, delayMs }
+    private enum CodingKeys: String, CodingKey { case name, sends, master, processing, delayMs, pans, limitDb }
 }
 
 extension Mix {
@@ -231,6 +302,9 @@ extension Mix {
         master = try c.decode(Double.self, forKey: .master)
         processing = (try? c.decodeIfPresent(ChannelSettings.self, forKey: .processing)) ?? ChannelSettings(name: "")
         delayMs = (try? c.decodeIfPresent(Double.self, forKey: .delayMs)) ?? 0
+        let p = (try? c.decodeIfPresent([Double].self, forKey: .pans)) ?? nil
+        pans = p?.count == sends.count ? p! : Array(repeating: 0, count: sends.count)
+        limitDb = (try? c.decodeIfPresent(Double.self, forKey: .limitDb)) ?? Mix.defaultLimitDb
     }
 }
 
@@ -279,9 +353,15 @@ struct Session: Codable, Equatable {
     /// (Engine/jammer_link.h).  nil counts as off.
     var jammerLink: Bool?
 
-    /// Outs 1 and 2 are two mono mixes, Aux 1 and Aux 2, rather than Main on
-    /// both.  nil counts as off.
+    /// Which pairs of outs (1+2, 3+4, 5+6, 7+8) play one stereo mix rather
+    /// than two mono ones.  nil: only 1+2, as Main.
+    var linkedPairs: [Bool]?
+    /// From before stereo pairs: true meant outs 1 and 2 were Aux 1 and Aux 2.
+    /// Only read, by `migrateLinks`.
     var splitMain: Bool?
+
+    /// Outs 1+2 are Main and 7+8 a stereo in-ear mix; 3–6 are mono auxes.
+    static let initialLinks = [true, false, false, true]
 
     static var initial: Session {
         // Everything starts pulled down so a fresh install never surprises
@@ -289,10 +369,18 @@ struct Session: Codable, Equatable {
         Session(
             channels: (1...channelCount).map { ChannelSettings(name: "Input \($0)") },
             mixes: (0..<mixCount).map { m in
-                Mix(name: m == 0 ? "Main" : "Aux \(m + 1)",
+                Mix(name: defaultName(ofMix: m, linked: m % 2 == 0 && initialLinks[m / 2]),
                     sends: Array(repeating: 0, count: channelCount),
                     master: FaderScale.unity)
-            })
+            },
+            linkedPairs: initialLinks)
+    }
+
+    mutating func migrateLinks() {
+        if linkedPairs?.count != pairCount {
+            linkedPairs = [splitMain != true] + Array(repeating: false, count: pairCount - 1)
+        }
+        splitMain = nil
     }
 
     subscript(strip s: Strip) -> ChannelSettings {
@@ -325,18 +413,50 @@ struct Session: Codable, Equatable {
         }
     }
 
-    /// The mixes in use, in order.  Mix m drives out m + 1, except that
-    /// unless Main is split, mix 0 drives outs 1 and 2 and mix 1 is unused.
-    var shownMixes: [Int] { splitMain == true ? Array(0..<mixCount) : [0] + Array(2..<mixCount) }
-
-    /// A mix a musician can take over from a phone: anything shown but Main.
-    func isAux(_ m: Int) -> Bool { shownMixes.contains(m) && (m > 0 || splitMain == true) }
-
-    static func defaultName(ofMix m: Int, split: Bool) -> String {
-        m == 0 && !split ? "Main" : "Aux \(m + 1)"
+    func isLinked(pair p: Int) -> Bool {
+        if let l = linkedPairs, l.indices.contains(p) { return l[p] }
+        return p == 0
     }
 
-    /// "In 3", "Out 1–2"; empty for an aux whose name already says it.
+    private mutating func setLinked(pair p: Int, _ on: Bool) {
+        var l = (0..<pairCount).map { isLinked(pair: $0) }
+        l[p] = on
+        linkedPairs = l
+    }
+
+    /// Links or unlinks a pair without changing what either out plays, as
+    /// far as sends, pans and masters can say it (see `Mix.absorb`).  A
+    /// default name follows: "Aux 3" ↔ "Aux 3+4", "Aux 1" ↔ "Main".
+    mutating func link(pair p: Int, _ on: Bool) {
+        guard on != isLinked(pair: p) else { return }
+        let l = 2 * p, r = l + 1
+        if on {
+            mixes[l].absorb(mixes[r])
+        } else {
+            mixes[r] = mixes[l].splitOff(named: mixes[r].name)
+        }
+        if mixes[l].name == Self.defaultName(ofMix: l, linked: !on) {
+            mixes[l].name = Self.defaultName(ofMix: l, linked: on)
+        }
+        setLinked(pair: p, on)
+    }
+
+    /// Mix m drives out m + 1, except that in a linked pair the even mix
+    /// drives both outs in stereo and the odd one is unused.
+    func isStereo(_ m: Int) -> Bool { m % 2 == 0 && isLinked(pair: m / 2) }
+
+    /// The mixes in use, in order.
+    var shownMixes: [Int] { (0..<mixCount).filter { $0 % 2 == 0 || !isLinked(pair: $0 / 2) } }
+
+    /// A mix a musician can take over from a phone: anything shown but Main.
+    func isAux(_ m: Int) -> Bool { shownMixes.contains(m) && (m > 0 || !isLinked(pair: 0)) }
+
+    /// Outs 1+2 linked are Main; other linked pairs are "Aux 3+4" and so on.
+    static func defaultName(ofMix m: Int, linked: Bool) -> String {
+        !linked ? "Aux \(m + 1)" : m == 0 ? "Main" : "Aux \(m + 1)+\(m + 2)"
+    }
+
+    /// "In 3", "Out 1+2"; empty for an aux whose name already says it.
     func jacks(of s: Strip) -> String {
         switch s {
         case .input(let c): "In \(c + 1)"
@@ -347,12 +467,12 @@ struct Session: Codable, Equatable {
     /// The jack label to show under or over a mix's name: "Aux 5" doesn't
     /// need "Out 5", but "Fiddle" does.
     func jacks(ofMix m: Int) -> String {
-        isAux(m) && mixes[m].name == Self.defaultName(ofMix: m, split: true) ? "" : outputs(ofMix: m)
+        isAux(m) && mixes[m].name == Self.defaultName(ofMix: m, linked: isStereo(m)) ? "" : outputs(ofMix: m)
     }
 
     /// Which output jacks a mix drives.
     func outputs(ofMix m: Int) -> String {
-        m == 0 && splitMain != true ? "Out 1–2" : "Out \(m + 1)"
+        isStereo(m) ? "Out \(m + 1)+\(m + 2)" : "Out \(m + 1)"
     }
 }
 
@@ -361,6 +481,9 @@ struct Session: Codable, Equatable {
 struct MixerScene: Codable {
     var channels: [ChannelSettings]
     var mixes: [Mix]
+    /// Which pairs of outs are stereo.  nil in scenes from before they were
+    /// saved, which leave the linking as it is.
+    var linkedPairs: [Bool]?
     var faderTaper: Int? = FaderScale.currentTaper
     var auxNames: Int? = Mix.currentAuxNames
 }

@@ -58,6 +58,69 @@ struct FaderView: View {
     private func nudge(_ d: Double) { value = min(1, max(0, value + d)) }
 }
 
+/// Horizontal pan, −1 left … +1 right.  Drags relative to where it was,
+/// like the faders, and snaps to center near it.  Double-click centers it;
+/// hold Option for fine control.
+struct PanControl: View {
+    @Environment(\.uiScale) private var k
+    @Binding var value: Double
+    var tint: Color
+    var accessibilityName: String
+
+    @State private var dragStart: Double?
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        VStack(spacing: 2 * k) {
+            GeometryReader { geo in
+                let w = geo.size.width, x = (value + 1) / 2 * w
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.black.opacity(0.55)).frame(height: 4 * k)
+                    Rectangle().fill(Color.white.opacity(0.4)).frame(width: 1, height: 10 * k).offset(x: w / 2)
+                    Capsule().fill(tint.opacity(0.85))
+                        .frame(width: abs(x - w / 2), height: 4 * k)
+                        .offset(x: min(x, w / 2))
+                    Circle().fill(Color(white: 0.86))
+                        .overlay(Circle().stroke(focused ? tint : Color.clear, lineWidth: 2))
+                        .frame(width: 12 * k, height: 12 * k)
+                        .shadow(color: .black.opacity(0.5), radius: 1, y: 1)
+                        .offset(x: x - 6 * k)
+                }
+                .frame(maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { g in
+                            if dragStart == nil { dragStart = value }
+                            let fine = NSEvent.modifierFlags.contains(.option) ? 0.2 : 1
+                            set(dragStart! + g.translation.width / max(1, w) * 2 * fine)
+                        }
+                        .onEnded { _ in dragStart = nil }
+                )
+                .simultaneousGesture(TapGesture(count: 2).onEnded { value = 0 })
+            }
+            .frame(height: 14 * k)
+            .padding(.horizontal, 6 * k)
+            Text(panLabel(value)).uiFont(11, mono: true).foregroundStyle(Theme.secondary)
+        }
+        .focusable()
+        .focused($focused)
+        .focusEffectDisabled()
+        .onKeyPress(.leftArrow) { set(value - 0.05); return .handled }
+        .onKeyPress(.rightArrow) { set(value + 0.05); return .handled }
+        .help("Pan. Double-click to center.")
+        .accessibilityElement()
+        .accessibilityLabel(accessibilityName)
+        .accessibilityValue(panLabel(value))
+        .accessibilityAdjustableAction { dir in set(value + (dir == .increment ? 0.05 : -0.05)) }
+    }
+
+    private func set(_ v: Double) {
+        let c = min(1, max(-1, v))
+        value = abs(c) < Mix.panDetent ? 0 : c
+    }
+}
+
 /// Peak meter, −60…0 dBFS.
 struct MeterBar: View {
     @Environment(\.uiScale) private var k
@@ -88,10 +151,11 @@ struct MeterBar: View {
 }
 
 /// A meter with a clip light on top.  The light stays red after a clip
-/// until the meter or light is clicked.
+/// until the meter or light is clicked.  With `right`, it's a stereo pair.
 struct MeterWithClip: View {
     @Environment(\.uiScale) private var k
     var db: Double
+    var right: Double? = nil
     @Binding var clipped: Bool
     var what: String
 
@@ -99,8 +163,15 @@ struct MeterWithClip: View {
         VStack(spacing: 4 * k) {
             RoundedRectangle(cornerRadius: 2 * k)
                 .fill(clipped ? Theme.hot : Color.white.opacity(0.12))
-                .frame(width: 8 * k, height: 12 * k)
-            MeterBar(db: db)
+                .frame(width: (right == nil ? 8 : 12) * k, height: 12 * k)
+            if let right {
+                HStack(spacing: 2 * k) {
+                    MeterBar(db: db, thickness: 5)
+                    MeterBar(db: right, thickness: 5)
+                }
+            } else {
+                MeterBar(db: db)
+            }
         }
         .contentShape(Rectangle())
         .onTapGesture { clipped = false }

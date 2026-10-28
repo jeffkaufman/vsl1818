@@ -3,7 +3,8 @@
 //
 // Screens, chosen by the URL hash:
 //   #               pick your mix
-//   #aux/N          a musician's own aux, Aux N on out N (mix N-1): one fader per input plus the aux master
+//   #aux/N          a musician's own aux, Aux N on out N (mix N-1): one fader per input plus the aux master,
+//                   and a pan per input if it's stereo (out N+1 too; #aux/N+1 leads here)
 //   #board/mix/N    whole board (passcode): any output's faders, plus mutes
 //   #board/ch/C/eq  one channel's EQ (or /comp for its compressor)
 'use strict';
@@ -12,6 +13,7 @@ const CODE_KEY = 'vslmixer.code';
 const LAST_AUX_KEY = 'vslmixer.lastAux';
 const LAST_MIX_KEY = 'vslmixer.lastBoardMix';
 const ECHO_MS = 700;   // ignore the mixer's echo of a control we just moved
+const PAN_DETENT = 0.03;   // pans this close to center snap to it, as on the Mac
 
 let S = null;          // latest state from the mixer
 let M = null;          // latest meters
@@ -78,6 +80,11 @@ function fmtDb(d, digits = 1) {
   if (!isFinite(d)) return '−∞ dB';
   const sign = d > 0.05 ? '+' : d < -0.05 ? '−' : '';
   return sign + Math.abs(d).toFixed(digits) + ' dB';
+}
+
+function fmtPan(p) {
+  const n = Math.round(Math.abs(p) * 100);
+  return n === 0 ? 'C' : (p < 0 ? 'L ' : 'R ') + n;
 }
 
 function fmtHz(f) {
@@ -172,11 +179,12 @@ function onState(next) {
       const [kind, a, b] = key.split(':').map((x, i) => i ? Number(x) : x);
       if (kind === 'send') next.mixes[a].sends[b] = S.mixes[a].sends[b];
       else if (kind === 'master') next.mixes[a].master = S.mixes[a].master;
+      else if (kind === 'pan') next.mixes[a].pans[b] = S.mixes[a].pans[b];
       else if (kind === 'mute') next.inputs[a].muted = S.inputs[a].muted;
       else if (kind === 'fx' && next.inputs[a].fx && S.inputs[a].fx) next.inputs[a].fx = S.inputs[a].fx;
     }
   }
-  const uses = (st) => st.mixes.map((m) => m.use).join();
+  const uses = (st) => st.mixes.map((m) => m.use + m.stereo).join();
   const structureChanged = !S || S.board !== next.board || uses(S) !== uses(next);
   S = next;
   if (next.board) { denied = false; unlocking = false; }
@@ -231,7 +239,12 @@ function render() {
     return;
   }
   const r = route();
-  // Aux 2 only exists while Main is split, and Main is never anyone's aux.
+  // The second out of a stereo pair belongs to the first one's mix.
+  if (r.kind === 'aux' && S.mixes[r.mix].use === 'none' && r.mix % 2 && S.mixes[r.mix - 1].use === 'aux') {
+    location.replace(`#aux/${r.mix}`);
+    return;
+  }
+  // The odd out of a linked pair has no mix of its own, and Main is never anyone's aux.
   if (r.kind === 'aux' && S.mixes[r.mix].use !== 'aux') r.kind = 'landing';
   if (r.kind === 'board' && S.mixes[r.mix].use === 'none') r.mix = 0;
   const needsBoard = r.kind === 'board' || r.kind === 'channel';
@@ -311,7 +324,62 @@ function stepButton(text, label, fn) {
   return b;
 }
 
-// One input's level in one output: name, dB, −, fader, +, input meter.
+// Where an input sits in a stereo mix.  Drags relative to where it was, like
+// the faders, and snaps to center near it; the readout centers it.
+function panControl(mix, ch) {
+  const key = `pan:${mix}:${ch}`;
+  const get = () => S.mixes[mix].pans[ch];
+  const set = (v) => {
+    v = clamp(v, -1, 1);
+    if (Math.abs(v) < PAN_DETENT) v = 0;
+    S.mixes[mix].pans[ch] = v;
+    queue(key, { t: 'pan', mix, ch, pan: v });
+    draw();
+  };
+  const track = h('div', { class: 'pan', role: 'slider', tabindex: '0', 'aria-label': '' },
+    h('div', { class: 'line' }), h('div', { class: 'fill' }), h('div', { class: 'mid' }), h('div', { class: 'thumb' }));
+  const readout = h('button', { class: 'panval', type: 'button', onclick: () => set(0) });
+  let start = null, startX = 0;
+  track.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    track.setPointerCapture(e.pointerId);
+    start = get();
+    startX = e.clientX;
+    track.classList.add('active');
+    wake();
+  });
+  track.addEventListener('pointermove', (e) => {
+    if (start === null) return;
+    const travel = Math.max(1, track.clientWidth - 28);
+    set(start + (e.clientX - startX) / travel * 2);
+  });
+  const end = () => { start = null; track.classList.remove('active'); };
+  track.addEventListener('pointerup', end);
+  track.addEventListener('pointercancel', end);
+  track.addEventListener('keydown', (e) => {
+    const dir = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1 }[e.key];
+    if (dir) { e.preventDefault(); set(get() + dir * 0.1); }
+  });
+  const el = h('div', { class: 'panrow' },
+    h('span', { class: 'lr', 'aria-hidden': 'true' }, 'L'), track,
+    h('span', { class: 'lr', 'aria-hidden': 'true' }, 'R'), readout);
+  function draw() {
+    const p = get();
+    const q = (p + 1) / 2;
+    track.style.setProperty('--q', q.toFixed(4));
+    track.style.setProperty('--lo', Math.min(q, 0.5).toFixed(4));
+    track.style.setProperty('--len', Math.abs(q - 0.5).toFixed(4));
+    track.setAttribute('aria-valuetext', fmtPan(p));
+    track.setAttribute('aria-label', `${S.inputs[ch].name} pan in ${S.mixes[mix].name}`);
+    readout.textContent = fmtPan(p);
+    readout.setAttribute('aria-label', `Center ${S.inputs[ch].name}`);
+    readout.disabled = p === 0;
+  }
+  return { el, draw };
+}
+
+// One input's level in one output: name, dB, −, fader, +, input meter, and
+// in a stereo output, its pan.
 function sendRow(mix, ch, board) {
   const key = `send:${mix}:${ch}`;
   const get = () => S.mixes[mix].sends[ch];
@@ -325,6 +393,7 @@ function sendRow(mix, ch, board) {
   const tag = h('span', { class: 'tag' }, 'Muted');
   const meter = meterEl();
   const f = fader({ get, set, label: '', meter });
+  const pan = S.mixes[mix].stereo ? panControl(mix, ch) : null;
   const mute = board ? h('button', {
     class: 'mutebtn', type: 'button',
     onclick: () => {
@@ -335,10 +404,11 @@ function sendRow(mix, ch, board) {
   }) : null;
   const el = h('div', { class: 'row' },
     h('div', { class: 'rowhead' }, name, board ? null : tag, db, mute),
-    h('div', { class: 'ctl' },
+    h('div', { class: pan ? 'ctl haspan' : 'ctl' },
       stepButton('−', 'Down 1 dB', () => set(stepPos(get(), -1))),
       f.el,
-      stepButton('+', 'Up 1 dB', () => set(stepPos(get(), 1)))));
+      stepButton('+', 'Up 1 dB', () => set(stepPos(get(), 1)))),
+    pan && pan.el);
 
   function update() {
     const input = S.inputs[ch];
@@ -348,6 +418,7 @@ function sendRow(mix, ch, board) {
     el.classList.toggle('dim', input.muted);
     f.el.setAttribute('aria-label', `${input.name} in ${S.mixes[mix].name}`);
     f.draw();
+    if (pan) pan.draw();
     if (mute) {
       mute.textContent = input.muted ? 'Muted' : 'Mute';
       mute.setAttribute('aria-pressed', String(input.muted));
