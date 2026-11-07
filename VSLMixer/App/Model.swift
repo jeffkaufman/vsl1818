@@ -316,7 +316,11 @@ enum Strip: Hashable {
     /// The next input or output, wrapping around, for Tab between names.
     func neighbor(backward: Bool, in session: Session) -> Strip {
         switch self {
-        case .input(let c): return .input((c + (backward ? channelCount - 1 : 1)) % channelCount)
+        case .input(var c):
+            // Past the names that can't be changed.
+            repeat { c = (c + (backward ? channelCount - 1 : 1)) % channelCount }
+            while session.nameLocked(.input(c))
+            return .input(c)
         case .output(let m):
             let shown = session.shownMixes, i = shown.firstIndex(of: m) ?? 0
             return .output(shown[(i + (backward ? shown.count - 1 : 1)) % shown.count])
@@ -352,6 +356,25 @@ struct Session: Codable, Equatable {
     /// Inputs 1 and 2 are Jammer's main left and right rather than the jacks
     /// (Engine/jammer_link.h).  nil counts as off.
     var jammerLink: Bool?
+
+    /// While linked, inputs 1 and 2 are always named for Jammer and can't be
+    /// renamed, so nothing -- a scene, an old save -- can leave them saying
+    /// "Input 1" while Jammer plays into them.
+    static let jammerNames = ["Jammer L", "Jammer R"]
+
+    func nameLocked(_ s: Strip) -> Bool {
+        if case .input(let c) = s { return jammerLink == true && c < Self.jammerNames.count }
+        return false
+    }
+
+    /// The Jammer names onto inputs 1 and 2 while linked; once unlinked,
+    /// back to the defaults if they still have them.
+    mutating func nameJammerInputs() {
+        for (c, name) in Self.jammerNames.enumerated() {
+            if jammerLink == true { channels[c].name = name }
+            else if channels[c].name == name { channels[c].name = "Input \(c + 1)" }
+        }
+    }
 
     /// Which pairs of outs (1+2, 3+4, 5+6, 7+8) play one stereo mix rather
     /// than two mono ones.  nil: only 1+2, as Main.
@@ -407,7 +430,7 @@ struct Session: Codable, Equatable {
         }
         set {
             switch s {
-            case .input(let c): channels[c].name = newValue
+            case .input(let c): if !nameLocked(s) { channels[c].name = newValue }
             case .output(let m): mixes[m].name = newValue
             }
         }

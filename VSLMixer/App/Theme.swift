@@ -246,13 +246,14 @@ struct NameField: View {
 
 /// A name you rename by clicking it, pressing and holding it, or from its
 /// context menu.  Names on the mixer pass their strip, so Tab can move on to
-/// the next one.
+/// the next one.  A locked name (Jammer's inputs) is only shown.
 struct EditableName: View {
     @Environment(AppState.self) private var app
     @Binding var text: String
     var size: CGFloat
     var weight: Font.Weight = .semibold
     var strip: Strip? = nil
+    var locked = false
     @State private var localEditing = false
 
     private var editing: Bool {
@@ -268,7 +269,10 @@ struct EditableName: View {
     }
 
     var body: some View {
-        if editing {
+        if locked {
+            Text(text).uiFont(size, weight).lineLimit(1)
+                .help("Named for Jammer while inputs 1–2 are from Jammer")
+        } else if editing {
             NameField(initial: text, size: size, weight: weight,
                       onTab: strip.map { s in { app.editingName = s.neighbor(backward: $0, in: app.session) } }) { new in
                 if let new { text = new }

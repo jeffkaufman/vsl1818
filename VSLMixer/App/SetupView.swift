@@ -47,6 +47,8 @@ struct SetupView: View {
                 Section("Input names") {
                     ForEach(0..<channelCount, id: \.self) { c in
                         TextField("In \(c + 1)", text: $app.session.channels[c].name)
+                            .disabled(app.session.nameLocked(.input(c)))
+                            .help(app.session.nameLocked(.input(c)) ? "Named for Jammer while inputs 1–2 are from Jammer" : "")
                     }
                 }
                 Section("Output names") {
@@ -76,16 +78,12 @@ struct SetupView: View {
 
     private func isAudioBox(_ name: String) -> Bool { name.contains("1818") }
 
-    /// Turning it on names inputs 1 and 2 for Jammer, unless they've been named already.
+    /// Turning it on names inputs 1 and 2 for Jammer, for as long as it's on.
     private var jammerLink: Binding<Bool> {
         Binding(get: { app.session.jammerLink == true }, set: { on in
             var s = app.session
             s.jammerLink = on
-            if on {
-                for (c, side) in ["L", "R"].enumerated() where s.channels[c].name == "Input \(c + 1)" {
-                    s.channels[c].name = "Jammer \(side)"
-                }
-            }
+            s.nameJammerInputs()
             app.session = s
         })
     }

@@ -530,6 +530,7 @@ final class AppState {
         // The scene's mixes were saved with its linking, so it's restored
         // as is, not converted the way Setup's toggles do.
         if let l = incoming.linkedPairs, l.count == pairCount { s.linkedPairs = l }
+        s.nameJammerInputs()
         leaveHiddenMixes(in: s)
         session = s
         refreshScenes()
@@ -570,6 +571,7 @@ final class AppState {
               s.mixes.allSatisfy({ $0.sends.count == channelCount }) else { return nil }
         FaderScale.migrate(&s.mixes, from: s.faderTaper)
         s.faderTaper = FaderScale.currentTaper
+        s.nameJammerInputs()
         return s
     }
 

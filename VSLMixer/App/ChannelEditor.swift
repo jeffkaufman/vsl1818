@@ -24,7 +24,8 @@ struct ChannelEditorView: View {
                 VStack(alignment: .leading, spacing: 1 * k) {
                     Text(app.session.jacks(of: strip) + " ").font(.system(size: 12 * k)).foregroundStyle(Theme.secondary)
                     EditableName(text: Binding(get: { app.session[name: strip] },
-                                               set: { app.session[name: strip] = $0 }), size: 20)
+                                               set: { app.session[name: strip] = $0 }), size: 20,
+                                 locked: app.session.nameLocked(strip))
                 }
                 HStack(spacing: 4 * k) {
                     tabButton("EQ", selected: tab == .eq) { app.route = .eq(strip) }

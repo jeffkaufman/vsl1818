@@ -329,7 +329,7 @@ struct ChannelStrip: View {
             set: { app.session.channels[index].muted = $0 })
         let name = Binding(
             get: { app.session.channels[index].name },
-            set: { app.session.channels[index].name = $0 })
+            set: { app.session[name: .input(index)] = $0 })
         let pan = Binding(
             get: { app.session.mixes[mix].pans[index] },
             set: { app.session.mixes[mix].pans[index] = $0 })
@@ -337,7 +337,8 @@ struct ChannelStrip: View {
         VStack(alignment: .leading, spacing: 10 * k) {
             VStack(alignment: .leading, spacing: 1 * k) {
                 Text("In \(index + 1)").uiFont(12).foregroundStyle(Theme.secondary)
-                EditableName(text: name, size: 15, strip: .input(index))
+                EditableName(text: name, size: 15, strip: .input(index),
+                             locked: app.session.nameLocked(.input(index)))
             }
             MiniCurveButton(label: "EQ", active: ch.eqActive, tint: .white,
                             reference: HorizontalLine(), curve: MiniEQShape(settings: ch),
