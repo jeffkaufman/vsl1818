@@ -24,6 +24,9 @@
 #define DELAY_FRAMES (1 << 15)     // MX_MAX_DELAY_MS at up to 96 kHz
 #define DELAY_XFADE 256            // samples to crossfade when a delay changes
 #define LIMIT_RELEASE_MS 100
+#define KB_RING (1 << 14)          // channel 9's audio, at the mixer's rate
+#define KB_BLOCK 128               // asked of the keyboard's device
+#define KB_OUT_MAX (MAX_FRAMES * 3)   // one block converted, with room to spare
 
 // ---------------------------------------------------------------- filters
 
@@ -206,6 +209,7 @@ struct mx_engine {
     _Atomic uint64_t recorded_frames;
     _Atomic double rec_origin;   // host time of the recording's first frame
     int rec_tracks;
+    int rec_cols[REC_TRACKS];   // which of the ring's columns each file is
     float *ring;
     pthread_t rec_thread;
     bool rec_thread_live;
@@ -221,7 +225,34 @@ struct mx_engine {
     uint64_t link_timeout;    // mach ticks without a write before it's gone
     uint64_t link_rd;         // IO thread only
     bool link_synced;
+
+    // ---- channel 9: a keyboard's USB audio (mx_engine_poll_keyboard)
+    // UI thread
+    AudioObjectID kb_dev;     // 0 while there's none open
+    AudioDeviceIOProcID kb_proc;
+    double kb_fs;             // the mixer's rate it was opened for
+    uint64_t kb_last_callbacks;
+    // the keyboard's device thread
+    AudioConverterRef kb_conv;   // its rate to the mixer's; NULL if they match
+    const float *kb_src;
+    UInt32 kb_src_frames;
+    float kb_mono[MAX_FRAMES];
+    float kb_out[KB_OUT_MAX];
+    _Atomic uint64_t kb_callbacks;
+    // between them: mono at the mixer's rate
+    float kb_ring[KB_RING];
+    _Atomic uint32_t kb_w, kb_r;
+    _Atomic uint32_t kb_target;   // frames to keep buffered
+    _Atomic bool kb_on;           // the IO thread reads it
+    _Atomic bool kb_reset;        // and starts afresh on its next cycle
+    // the mixer's IO thread
+    double kb_frac, kb_fill, kb_integral;
+    bool kb_priming;
+    _Atomic uint32_t kb_underruns, kb_skips;
+    _Atomic float kb_ppm;
 };
+
+static void kb_stop(mx_engine *e);
 
 static mx_channel_settings default_settings(void) {
     mx_channel_settings s = {
@@ -342,6 +373,7 @@ mx_engine *mx_engine_create(void) {
 void mx_engine_destroy(mx_engine *e) {
     if (!e) return;
     mx_engine_record_stop(e);
+    kb_stop(e);
     mx_engine_stop(e);
     free(e->ring);
     free(e);
@@ -690,6 +722,146 @@ bool mx_engine_set_jammer_link(mx_engine *e, bool on) {
     return true;
 }
 
+// ---------------------------------------------------------------- channel 9
+
+// The keyboard's device runs on its own clock, and the one this was written
+// for only runs at 44.1 kHz.  Its thread mixes it to mono and converts it to
+// the mixer's rate (Apple's converter, at its best quality), into kb_ring.
+// The mixer's thread reads that, but a touch faster or slower than one frame
+// per frame -- interpolating, four-point -- steered to keep the ring at its
+// target, the way jammer's talkbox follows its card.  Read at exactly one,
+// two crystals a hundred or so ppm apart run the ring dry every minute or
+// two: a gap.  The fill is smoothed first, since it saw-tooths by a block at
+// a time.  Proportional, a whole target off reading 1000 ppm fast, plus an
+// integral that takes up the steady difference between the clocks.
+#define KB_FOLLOW_KP 1e-3
+#define KB_FOLLOW_TI_S 30.0
+#define KB_FOLLOW_SMOOTH_S 0.5
+#define KB_FOLLOW_MAX 0.005
+
+static inline float hermite(float xm1, float x0, float x1, float x2, float t) {
+    float c1 = 0.5f * (x1 - xm1);
+    float c2 = xm1 - 2.5f * x0 + 2 * x1 - 0.5f * x2;
+    float c3 = 0.5f * (x2 - xm1) + 1.5f * (x0 - x1);
+    return ((c3 * t + c2) * t + c1) * t + x0;
+}
+
+// The mixer's IO thread: `frames` of channel 9 into dst, every `stride`.
+static void kb_read(mx_engine *e, float *dst, int stride, int frames) {
+    if (!atomic_load_explicit(&e->kb_on, memory_order_acquire)) {
+        for (int i = 0; i < frames; i++) dst[i * stride] = 0;
+        return;
+    }
+    uint32_t w = atomic_load_explicit(&e->kb_w, memory_order_acquire);
+    uint32_t r = atomic_load_explicit(&e->kb_r, memory_order_relaxed);
+    if (atomic_exchange_explicit(&e->kb_reset, false, memory_order_acquire)) {
+        r = w;
+        e->kb_frac = 0;
+        e->kb_fill = 0;
+        e->kb_integral = 0;
+        e->kb_priming = true;
+    }
+    uint32_t avail = w - r;
+    uint32_t target = atomic_load_explicit(&e->kb_target, memory_order_relaxed);
+    if (avail > target * 3) {
+        r += avail - target;
+        avail = target;
+        e->kb_fill = target;
+        e->kb_frac = 0;
+        atomic_fetch_add_explicit(&e->kb_skips, 1, memory_order_relaxed);
+    }
+    if (e->kb_priming && avail >= target) {
+        e->kb_priming = false;
+        e->kb_fill = avail;
+    }
+
+    double ratio = 1;
+    if (!e->kb_priming) {
+        double dt = frames / e->fs;
+        e->kb_fill += (avail - e->kb_fill) * fmin(1, dt / KB_FOLLOW_SMOOTH_S);
+        double err = (e->kb_fill - target) / target;
+        e->kb_integral += KB_FOLLOW_KP * err * dt / KB_FOLLOW_TI_S;
+        e->kb_integral = fmax(-KB_FOLLOW_MAX, fmin(KB_FOLLOW_MAX, e->kb_integral));
+        double adjust = fmax(-KB_FOLLOW_MAX, fmin(KB_FOLLOW_MAX, KB_FOLLOW_KP * err + e->kb_integral));
+        ratio = 1 + adjust;
+        atomic_store_explicit(&e->kb_ppm, (float)(adjust * 1e6), memory_order_relaxed);
+    }
+
+    // Up to where the last frame lands, and two past it to interpolate from.
+    double end = e->kb_frac + frames * ratio;
+    if (!e->kb_priming && avail < (uint32_t)end + 2) {
+        e->kb_priming = true;
+        atomic_fetch_add_explicit(&e->kb_underruns, 1, memory_order_relaxed);
+    }
+    if (e->kb_priming) {
+        for (int i = 0; i < frames; i++) dst[i * stride] = 0;
+    } else {
+        const float *b = e->kb_ring;
+        const uint32_t m = KB_RING - 1;
+        for (int i = 0; i < frames; i++) {
+            double pos = e->kb_frac + i * ratio;
+            uint32_t at = r + (uint32_t)pos;
+            dst[i * stride] = hermite(b[(at - 1) & m], b[at & m], b[(at + 1) & m],
+                                      b[(at + 2) & m], (float)(pos - floor(pos)));
+        }
+        uint32_t take = (uint32_t)end;
+        r += take;
+        e->kb_frac = end - take;
+    }
+    atomic_store_explicit(&e->kb_r, r, memory_order_release);
+}
+
+// The converter asks for the keyboard's frames; it gets this block's once.
+static OSStatus kb_supply(AudioConverterRef c, UInt32 *packets, AudioBufferList *data,
+                          AudioStreamPacketDescription **desc, void *ctx) {
+    mx_engine *e = ctx;
+    if (e->kb_src_frames == 0) {
+        *packets = 0;
+        return 1;   // nothing more until the next block
+    }
+    if (*packets > e->kb_src_frames) *packets = e->kb_src_frames;
+    data->mBuffers[0].mData = (void *)e->kb_src;
+    data->mBuffers[0].mDataByteSize = *packets * (UInt32)sizeof(float);
+    data->mBuffers[0].mNumberChannels = 1;
+    e->kb_src += *packets;
+    e->kb_src_frames -= *packets;
+    return noErr;
+}
+
+// The keyboard's device thread: mono, at the mixer's rate, into the ring.
+static OSStatus kb_io(AudioObjectID dev, const AudioTimeStamp *now,
+                      const AudioBufferList *in, const AudioTimeStamp *in_time,
+                      AudioBufferList *out, const AudioTimeStamp *out_time, void *ctx) {
+    mx_engine *e = ctx;
+    atomic_fetch_add_explicit(&e->kb_callbacks, 1, memory_order_relaxed);
+    if (in->mNumberBuffers == 0 || in->mBuffers[0].mNumberChannels == 0) return noErr;
+    int frames = (int)(in->mBuffers[0].mDataByteSize /
+                       (sizeof(float) * in->mBuffers[0].mNumberChannels));
+    if (frames > MAX_FRAMES) frames = MAX_FRAMES;
+    int sl, sr;
+    const float *l = locate(in, 0, &sl), *rt = locate(in, 1, &sr);
+    if (!l) return noErr;
+    for (int i = 0; i < frames; i++)
+        e->kb_mono[i] = rt ? 0.5f * (l[i * sl] + rt[i * sr]) : l[i * sl];
+
+    const float *src = e->kb_mono;
+    UInt32 n = (UInt32)frames;
+    if (e->kb_conv) {
+        e->kb_src = e->kb_mono;
+        e->kb_src_frames = (UInt32)frames;
+        n = KB_OUT_MAX;
+        AudioBufferList bl = {1, {{1, n * (UInt32)sizeof(float), e->kb_out}}};
+        AudioConverterFillComplexBuffer(e->kb_conv, kb_supply, e, &n, &bl, NULL);
+        src = e->kb_out;
+    }
+    uint32_t w = atomic_load_explicit(&e->kb_w, memory_order_relaxed);
+    uint32_t r = atomic_load_explicit(&e->kb_r, memory_order_acquire);
+    if (n > KB_RING - (w - r) - 4) return noErr;   // the mixer has stalled
+    for (UInt32 i = 0; i < n; i++) e->kb_ring[(w + i) & (KB_RING - 1)] = src[i];
+    atomic_store_explicit(&e->kb_w, w + n, memory_order_release);
+    return noErr;
+}
+
 static OSStatus io_proc(AudioObjectID dev, const AudioTimeStamp *now,
                         const AudioBufferList *in, const AudioTimeStamp *in_time,
                         AudioBufferList *out, const AudioTimeStamp *out_time,
@@ -715,24 +887,22 @@ static OSStatus io_proc(AudioObjectID dev, const AudioTimeStamp *now,
     bool linked = atomic_load_explicit(&e->link_on, memory_order_acquire);
     e->in_host = (in_time->mFlags & kAudioTimeStampHostTimeValid) ? (double)in_time->mHostTime : 0;
     e->jacks = NULL;
-    if (!linked && in->mNumberBuffers == 1 && in->mBuffers[0].mNumberChannels >= MX_CHANNELS) {
-        ip = in->mBuffers[0].mData;
-        is = (int)in->mBuffers[0].mNumberChannels;
-    } else {
-        for (int c = 0; c < MX_CHANNELS; c++) {
-            int st;
-            const float *p = locate(in, c, &st);
-            for (int i = 0; i < frames; i++)
-                e->in_scratch[i * MX_CHANNELS + c] = p ? p[i * st] : 0;
-        }
-        ip = e->in_scratch;
-        is = MX_CHANNELS;
-        if (linked) {
-            for (int i = 0; i < frames; i++)
-                for (int j = 0; j < 2; j++) e->jack_scratch[i * 2 + j] = e->in_scratch[i * MX_CHANNELS + j];
-            e->jacks = e->jack_scratch;
-            link_read(e, e->in_scratch, frames);
-        }
+    // Gathered into scratch space every time, since channel 9 isn't the
+    // device's: the jacks, then the keyboard.
+    for (int c = 0; c < MX_JACKS; c++) {
+        int st;
+        const float *p = locate(in, c, &st);
+        for (int i = 0; i < frames; i++)
+            e->in_scratch[i * MX_CHANNELS + c] = p ? p[i * st] : 0;
+    }
+    kb_read(e, e->in_scratch + MX_KEYBOARD, MX_CHANNELS, frames);
+    ip = e->in_scratch;
+    is = MX_CHANNELS;
+    if (linked) {
+        for (int i = 0; i < frames; i++)
+            for (int j = 0; j < 2; j++) e->jack_scratch[i * 2 + j] = e->in_scratch[i * MX_CHANNELS + j];
+        e->jacks = e->jack_scratch;
+        link_read(e, e->in_scratch, frames);
     }
 
     if (out->mNumberBuffers == 1 && out->mBuffers[0].mNumberChannels >= MX_OUTPUTS) {
@@ -817,7 +987,7 @@ int mx_list_devices(mx_device_info *out, int max) {
     for (int i = 0; i < n && found < max; i++) {
         int ins = channel_count(ids[i], kAudioObjectPropertyScopeInput);
         int outs = channel_count(ids[i], kAudioObjectPropertyScopeOutput);
-        if (ins < MX_CHANNELS || outs < MX_OUTPUTS) continue;
+        if (ins < MX_JACKS || outs < MX_OUTPUTS) continue;
         mx_device_info *d = &out[found++];
         device_strings(ids[i], d->name, sizeof d->name, d->uid, sizeof d->uid);
         d->inputs = ins;
@@ -869,7 +1039,7 @@ int mx_engine_start(mx_engine *e, const char *uid, double rate, uint32_t buf) {
     if (e->running) return MX_ERR_ALREADY;
     AudioObjectID dev = find_device(uid);
     if (dev == kAudioObjectUnknown) return MX_ERR_NO_DEVICE;
-    if (channel_count(dev, kAudioObjectPropertyScopeInput) < MX_CHANNELS ||
+    if (channel_count(dev, kAudioObjectPropertyScopeInput) < MX_JACKS ||
         channel_count(dev, kAudioObjectPropertyScopeOutput) < MX_OUTPUTS)
         return MX_ERR_TOO_FEW_CHANNELS;
 
@@ -918,6 +1088,111 @@ void mx_engine_stop(mx_engine *e) {
     e->running = false;
 }
 
+static void kb_stop(mx_engine *e) {
+    if (!e->kb_dev) return;
+    atomic_store_explicit(&e->kb_on, false, memory_order_release);
+    AudioDeviceStop(e->kb_dev, e->kb_proc);
+    AudioDeviceDestroyIOProcID(e->kb_dev, e->kb_proc);
+    if (e->kb_conv) AudioConverterDispose(e->kb_conv);
+    e->kb_conv = NULL;
+    e->kb_dev = 0;
+}
+
+static void kb_start(mx_engine *e, AudioObjectID dev) {
+    AudioObjectPropertyAddress ra = {kAudioDevicePropertyNominalSampleRate,
+                                     kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain};
+    Float64 rate = 0;
+    UInt32 sz = sizeof rate;
+    if (AudioObjectGetPropertyData(dev, &ra, 0, NULL, &sz, &rate) || rate <= 0) return;
+    // Its own rate if it has ours, so there's nothing to convert.
+    if (rate != e->fs && !AudioObjectSetPropertyData(dev, &ra, 0, NULL, sizeof e->fs, &e->fs)) {
+        for (int i = 0; i < 10 && rate != e->fs; i++) {
+            usleep(20000);
+            sz = sizeof rate;
+            AudioObjectGetPropertyData(dev, &ra, 0, NULL, &sz, &rate);
+        }
+    }
+    AudioObjectPropertyAddress ba = {kAudioDevicePropertyBufferFrameSize,
+                                     kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain};
+    UInt32 want = KB_BLOCK;
+    AudioObjectSetPropertyData(dev, &ba, 0, NULL, sizeof want, &want);
+    uint32_t block = get_u32(dev, kAudioDevicePropertyBufferFrameSize, kAudioObjectPropertyScopeGlobal);
+    if (block == 0 || block > MAX_FRAMES) block = MAX_FRAMES;
+
+    e->kb_conv = NULL;
+    if (rate != e->fs) {
+        AudioStreamBasicDescription f = {
+            .mSampleRate = rate, .mFormatID = kAudioFormatLinearPCM,
+            .mFormatFlags = kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked,
+            .mBytesPerPacket = 4, .mFramesPerPacket = 1, .mBytesPerFrame = 4,
+            .mChannelsPerFrame = 1, .mBitsPerChannel = 32};
+        AudioStreamBasicDescription to = f;
+        to.mSampleRate = e->fs;
+        if (AudioConverterNew(&f, &to, &e->kb_conv)) return;
+        UInt32 q = kAudioConverterQuality_Max;
+        AudioConverterSetProperty(e->kb_conv, kAudioConverterSampleRateConverterQuality, sizeof q, &q);
+    }
+    // A block of it, at our rate, arrives at once and ours are taken a few
+    // at a time: enough for the one and two of the other, and some slack
+    // for the two threads' timing.
+    uint32_t block_out = (uint32_t)ceil(block * e->fs / rate);
+    atomic_store(&e->kb_target, block_out + 2 * e->buffer_frames + 64);
+
+    if (AudioDeviceCreateIOProcID(dev, kb_io, e, &e->kb_proc)) {
+        if (e->kb_conv) AudioConverterDispose(e->kb_conv);
+        e->kb_conv = NULL;
+        return;
+    }
+    if (AudioDeviceStart(dev, e->kb_proc)) {
+        AudioDeviceDestroyIOProcID(dev, e->kb_proc);
+        if (e->kb_conv) AudioConverterDispose(e->kb_conv);
+        e->kb_conv = NULL;
+        return;
+    }
+    e->kb_dev = dev;
+    e->kb_fs = e->fs;
+    e->kb_last_callbacks = atomic_load(&e->kb_callbacks);
+    atomic_store(&e->kb_reset, true);
+    atomic_store_explicit(&e->kb_on, true, memory_order_release);
+}
+
+// The input device whose name contains `name`, ignoring case.
+static AudioObjectID find_input_named(const char *name) {
+    AudioObjectPropertyAddress a = {kAudioHardwarePropertyDevices, kAudioObjectPropertyScopeGlobal,
+                                    kAudioObjectPropertyElementMain};
+    UInt32 sz = 0;
+    if (AudioObjectGetPropertyDataSize(kAudioObjectSystemObject, &a, 0, NULL, &sz)) return 0;
+    int n = (int)(sz / sizeof(AudioObjectID));
+    AudioObjectID *ids = malloc(sz), found = kAudioObjectUnknown;
+    if (!ids) return kAudioObjectUnknown;
+    AudioObjectGetPropertyData(kAudioObjectSystemObject, &a, 0, NULL, &sz, ids);
+    for (int i = 0; i < n && found == kAudioObjectUnknown; i++) {
+        char dn[128], uid[256];
+        if (channel_count(ids[i], kAudioObjectPropertyScopeInput) < 1) continue;
+        device_strings(ids[i], dn, sizeof dn, uid, sizeof uid);
+        if (strcasestr(dn, name)) found = ids[i];
+    }
+    free(ids);
+    return found;
+}
+
+void mx_engine_poll_keyboard(mx_engine *e, const char *name) {
+    AudioObjectID dev = kAudioObjectUnknown;
+    if (name && name[0] && e->running) dev = find_input_named(name);
+    bool alive = dev != kAudioObjectUnknown &&
+        get_u32(dev, kAudioDevicePropertyDeviceIsAlive, kAudioObjectPropertyScopeGlobal) != 0;
+    if (e->kb_dev) {
+        // Gone, swapped, at the wrong rate now, or stalled since last time:
+        // let it go, and the next poll opens it afresh if it's there.
+        uint64_t cb = atomic_load(&e->kb_callbacks);
+        bool stalled = cb == e->kb_last_callbacks;
+        e->kb_last_callbacks = cb;
+        if (!alive || dev != e->kb_dev || e->kb_fs != e->fs || stalled) kb_stop(e);
+        return;
+    }
+    if (alive) kb_start(e, dev);
+}
+
 void mx_engine_get_stats(mx_engine *e, mx_stats *st) {
     memset(st, 0, sizeof *st);
     st->running = e->running;
@@ -940,6 +1215,9 @@ void mx_engine_get_stats(mx_engine *e, mx_stats *st) {
     st->record_overflows = atomic_load(&e->rec_overflows);
     st->jammer_linked = atomic_load(&e->link_on);
     st->jammer_alive = st->jammer_linked && st->running && atomic_load(&e->link_alive);
+    st->keyboard = e->kb_dev != 0;
+    st->keyboard_underruns = atomic_load(&e->kb_underruns);
+    st->keyboard_ppm = atomic_load(&e->kb_ppm);
 }
 
 // ---------------------------------------------------------------- recording
@@ -959,7 +1237,7 @@ static void *rec_main(void *arg) {
         UInt32 n = avail > 4096 ? 4096 : (UInt32)avail;
         for (UInt32 i = 0; i < n; i++) {
             const float *src = &e->ring[((r + i) & (RING_FRAMES - 1)) * REC_TRACKS];
-            for (int c = 0; c < e->rec_tracks; c++) planes[c][i] = src[c];
+            for (int c = 0; c < e->rec_tracks; c++) planes[c][i] = src[e->rec_cols[c]];
         }
         atomic_store_explicit(&e->ring_r, r + n, memory_order_release);
         for (int c = 0; c < e->rec_tracks; c++) {
@@ -971,9 +1249,14 @@ static void *rec_main(void *arg) {
     return NULL;
 }
 
-int mx_engine_record_start(mx_engine *e, const char *dir, bool jacks) {
+int mx_engine_record_start(mx_engine *e, const char *dir, bool jacks, bool keyboard) {
     if (e->rec_thread_live) return MX_ERR_ALREADY;
-    e->rec_tracks = jacks ? REC_TRACKS : MX_CHANNELS;
+    // The ring holds every input and both jacks; these are the ones kept.
+    e->rec_tracks = 0;
+    for (int c = 0; c < MX_JACKS; c++) e->rec_cols[e->rec_tracks++] = c;
+    if (keyboard) e->rec_cols[e->rec_tracks++] = MX_KEYBOARD;
+    if (jacks)
+        for (int j = 0; j < 2; j++) e->rec_cols[e->rec_tracks++] = MX_CHANNELS + j;
     double fs = e->fs;
     AudioStreamBasicDescription file = {
         .mSampleRate = fs, .mFormatID = kAudioFormatLinearPCM,
@@ -988,8 +1271,9 @@ int mx_engine_record_start(mx_engine *e, const char *dir, bool jacks) {
 
     for (int c = 0; c < e->rec_tracks; c++) {
         char path[1024];
-        if (c < MX_CHANNELS) snprintf(path, sizeof path, "%s/in%d.wav", dir, c + 1);
-        else snprintf(path, sizeof path, "%s/jack%d.wav", dir, c - MX_CHANNELS + 1);
+        int col = e->rec_cols[c];
+        if (col < MX_CHANNELS) snprintf(path, sizeof path, "%s/in%d.wav", dir, col + 1);
+        else snprintf(path, sizeof path, "%s/jack%d.wav", dir, col - MX_CHANNELS + 1);
         CFURLRef url = CFURLCreateFromFileSystemRepresentation(
             NULL, (const UInt8 *)path, (CFIndex)strlen(path), false);
         OSStatus err = ExtAudioFileCreateWithURL(url, kAudioFileWAVEType, &file, NULL,

@@ -9,7 +9,7 @@ struct MixerView: View {
             HeaderBar()
             HStack(spacing: 12 * k) {
                 HStack(spacing: 8 * k) {
-                    ForEach(0..<channelCount, id: \.self) { ChannelStrip(index: $0) }
+                    ForEach(0..<app.shownChannelCount, id: \.self) { ChannelStrip(index: $0) }
                 }
                 MasterStrip()
             }
@@ -278,7 +278,7 @@ struct MixButton: View {
             if renaming {
                 VStack(alignment: .leading, spacing: 1 * k) {
                     NameField(initial: name, size: 14,
-                              onTab: { app.editingName = Strip.output(mix).neighbor(backward: $0, in: app.session) }) { new in
+                              onTab: { app.editingName = Strip.output(mix).neighbor(backward: $0, in: app.session, inputs: app.shownChannelCount) }) { new in
                         if let new { app.session.mixes[mix].name = new }
                         if app.editingName == .output(mix) { app.editingName = nil }
                     }
@@ -336,9 +336,9 @@ struct ChannelStrip: View {
 
         VStack(alignment: .leading, spacing: 10 * k) {
             VStack(alignment: .leading, spacing: 1 * k) {
-                Text("In \(index + 1)").uiFont(12).foregroundStyle(Theme.secondary)
+                Text(app.session.jacks(of: .input(index))).uiFont(12).foregroundStyle(Theme.secondary)
                 EditableName(text: name, size: 15, strip: .input(index),
-                             locked: app.session.nameLocked(.input(index)))
+                             locked: app.session.nameLock(.input(index)))
             }
             MiniCurveButton(label: "EQ", active: ch.eqActive, tint: .white,
                             reference: HorizontalLine(), curve: MiniEQShape(settings: ch),

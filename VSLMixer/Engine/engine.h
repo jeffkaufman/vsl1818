@@ -1,4 +1,5 @@
-// Real-time mixing engine for an 8-in / 8-out class-compliant interface.
+// Real-time mixing engine for an 8-in / 8-out class-compliant interface,
+// plus a ninth input: a keyboard's own USB audio, mixed to mono.
 //
 // Everything that runs on the CoreAudio IO thread lives in C so it never
 // allocates, locks, or touches the Swift runtime.  The UI thread hands
@@ -9,7 +10,11 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define MX_CHANNELS 8
+#define MX_JACKS 8      // inputs from the interface itself
+// Channel 9 is a USB keyboard's audio, from its own device on its own clock,
+// mixed to mono (mx_engine_poll_keyboard).  Silent while it isn't there.
+#define MX_KEYBOARD 8
+#define MX_CHANNELS 9   // every input strip: the jacks, then the keyboard
 #define MX_MIXES 8     // mix m drives out m+1, except in a linked pair (below)
 #define MX_OUTPUTS 8
 #define MX_PAIRS 4     // outs 2p+1 and 2p+2 can be linked into one stereo mix
@@ -47,6 +52,9 @@ typedef struct {
     uint32_t record_overflows;
     bool jammer_linked;      // inputs 1 and 2 come from Jammer
     bool jammer_alive;       // and Jammer is playing into them
+    bool keyboard;           // channel 9's keyboard is plugged in and open
+    uint32_t keyboard_underruns;   // times its audio ran dry: a gap
+    float keyboard_ppm;      // how much faster its clock is read than nominal
 } mx_stats;
 
 typedef struct mx_engine mx_engine;
@@ -54,7 +62,7 @@ typedef struct mx_engine mx_engine;
 mx_engine *mx_engine_create(void);
 void mx_engine_destroy(mx_engine *e);
 
-// Devices with at least 8 inputs and 8 outputs.  Returns the count.
+// Devices with at least MX_JACKS inputs and 8 outputs.  Returns the count.
 int mx_list_devices(mx_device_info *out, int max);
 
 // device_uid may be NULL or "" to pick an AudioBox 1818VSL, else the first
@@ -78,6 +86,14 @@ void mx_engine_set_mix_delay(mx_engine *e, int mix, float ms);
 // jacks (see jammer_link.h).  Everything downstream, recording included,
 // sees Jammer there.  False if the shared memory couldn't be opened.
 bool mx_engine_set_jammer_link(mx_engine *e, bool on);
+// Channel 9 from the input device whose name contains `name` -- a
+// keyboard's USB audio -- its first two channels mixed to mono.  Call it
+// every so often from the UI thread: it opens the device when it appears and
+// lets it go when it's unplugged, the mixer stops, or the rate changes.  NULL
+// or "" lets it go.  The keyboard runs on its own clock, and often at
+// another rate, so it's converted to the mixer's rate and then read a touch
+// faster or slower to follow its clock (see kb_read).
+void mx_engine_poll_keyboard(mx_engine *e, const char *name);
 // Links outs 2p+1 and 2p+2 into one stereo mix: mix 2p, left on the first
 // and right on the second, and mix 2p+1 goes nowhere.  Unlinked, each out
 // has its own mono mix.  Pair 0 (Main) starts linked, the others not.  The
@@ -111,11 +127,13 @@ void mx_engine_read_meters(mx_engine *e, mx_meters *m);
 // windowed FFT doesn't notice.
 void mx_engine_read_scope(mx_engine *e, int source, float out[MX_SCOPE_FRAMES]);
 
-// Records the raw inputs as eight mono 24-bit WAV files in directory,
-// in1.wav ... in8.wav.  With Jammer linked those have Jammer on 1 and 2, so
-// `jacks` adds jack1.wav and jack2.wav with what came in on the jacks
-// themselves (the same as in1 and in2 while it isn't).
-int mx_engine_record_start(mx_engine *e, const char *directory, bool jacks);
+// Records the raw inputs as mono 24-bit WAV files in directory, in1.wav ...
+// in8.wav, and with `keyboard` in9.wav, channel 9.  With Jammer linked
+// inputs 1 and 2 are Jammer, so `jacks` adds jack1.wav and jack2.wav with
+// what came in on the jacks themselves (the same as in1 and in2 while it
+// isn't).
+int mx_engine_record_start(mx_engine *e, const char *directory, bool jacks,
+                           bool keyboard);
 void mx_engine_record_stop(mx_engine *e);
 // mach_absolute_time() of the recording's first frame as it came in at the
 // converters, for lining up other things with it (MIDI); 0 until known.

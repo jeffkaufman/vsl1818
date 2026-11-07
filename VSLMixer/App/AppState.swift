@@ -59,12 +59,13 @@ struct AudioStatus: Equatable {
     var dropouts = 0
     var jammerLinked = false   // inputs 1–2 are taken from Jammer
     var jammerAlive = false    // and Jammer is playing into them
+    var keyboard = false       // channel 9's keyboard is plugged in
 }
 
 struct ActiveRecording {
     let folder: URL
     let started: Date
-    let names: [String]
+    let names: [String]   // the inputs recorded: the jacks, and the keyboard if it was there
     let sampleRate: Double
     /// With Jammer linked: jacks 1 and 2 too, since inputs 1 and 2 are
     /// Jammer, and the MIDI played into it.
@@ -205,7 +206,12 @@ final class AppState {
         status.dropouts = Int(st.dropouts)
         status.jammerLinked = st.jammer_linked
         status.jammerAlive = st.jammer_alive
+        status.keyboard = st.keyboard
     }
+
+    /// The inputs on show: the jacks, and channel 9 while its keyboard is
+    /// plugged in.  It's last, so hiding it doesn't renumber anything.
+    var shownChannelCount: Int { status.keyboard ? channelCount : jackCount }
 
     /// Every half second: notice stalls, unplugs and outside sample-rate
     /// changes, and bring the audio back without anyone touching the laptop.
@@ -226,6 +232,7 @@ final class AppState {
         stalledTicks = st.callbacks == lastCallbacks ? stalledTicks + 1 : 0
         if stalledTicks == 0 { failedRestarts = 0 }
         lastCallbacks = st.callbacks
+        mx_engine_poll_keyboard(engine, keyboardDeviceName)
         refreshStats()
 
         if !st.alive {
@@ -405,13 +412,14 @@ final class AppState {
             return
         }
         let jammer = session.jammerLink == true
-        let err = folder.path.withCString { mx_engine_record_start(engine, $0, jammer) }
+        let keyboard = status.keyboard
+        let err = folder.path.withCString { mx_engine_record_start(engine, $0, jammer, keyboard) }
         if err != 0 {
             recordingError = "Couldn't create the recording files"
             return
         }
         recording = ActiveRecording(folder: folder, started: Date(),
-                                    names: session.channels.map(\.name),
+                                    names: session.channels.prefix(keyboard ? channelCount : jackCount).map(\.name),
                                     sampleRate: status.sampleRate, jammer: jammer)
         if jammer {
             midiRecorder?.start(engine: engine, sampleRate: status.sampleRate)
@@ -518,6 +526,7 @@ final class AppState {
             guard let data = try? Data(contentsOf: Self.sceneURL(name)),
                   var scene = try? JSONDecoder().decode(MixerScene.self, from: data) else { return }
             Mix.migrateNames(&scene.mixes, from: scene.auxNames)
+            Session.addKeyboard(channels: &scene.channels, mixes: &scene.mixes)
             guard scene.channels.count == channelCount, scene.mixes.count == mixCount else { return }
             FaderScale.migrate(&scene.mixes, from: scene.faderTaper)
             incoming = scene
@@ -530,7 +539,7 @@ final class AppState {
         // The scene's mixes were saved with its linking, so it's restored
         // as is, not converted the way Setup's toggles do.
         if let l = incoming.linkedPairs, l.count == pairCount { s.linkedPairs = l }
-        s.nameJammerInputs()
+        s.fixLockedNames()
         leaveHiddenMixes(in: s)
         session = s
         refreshScenes()
@@ -567,11 +576,12 @@ final class AppState {
         Mix.migrateNames(&s.mixes, from: s.auxNames)
         s.auxNames = Mix.currentAuxNames
         s.migrateLinks()
+        Session.addKeyboard(channels: &s.channels, mixes: &s.mixes)
         guard s.channels.count == channelCount, s.mixes.count == mixCount,
               s.mixes.allSatisfy({ $0.sends.count == channelCount }) else { return nil }
         FaderScale.migrate(&s.mixes, from: s.faderTaper)
         s.faderTaper = FaderScale.currentTaper
-        s.nameJammerInputs()
+        s.fixLockedNames()
         return s
     }
 

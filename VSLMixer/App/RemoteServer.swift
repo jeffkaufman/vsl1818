@@ -342,7 +342,7 @@ final class RemoteServer {
         let s = app.session
         let r4 = { (v: Double) in (v * 10000).rounded() / 10000 }
         let hex = { (v: UInt32) in String(format: "#%06X", v) }
-        let inputs: [[String: Any]] = s.channels.map { ch in
+        let inputs: [[String: Any]] = s.channels.prefix(app.shownChannelCount).map { ch in
             var d: [String: Any] = ["name": ch.name, "muted": ch.muted]
             if board {
                 var fx: [String: Double] = [:]

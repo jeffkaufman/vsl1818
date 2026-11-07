@@ -1,6 +1,11 @@
 import Foundation
 
 let channelCount = Int(MX_CHANNELS)
+/// The interface's own inputs; channel 9, after them, is the keyboard.
+let jackCount = Int(MX_JACKS)
+let keyboardChannel = Int(MX_KEYBOARD)
+/// What channel 9 listens for: the input device whose name has this in it.
+let keyboardDeviceName = "Digital Piano"
 let mixCount = Int(MX_MIXES)
 let pairCount = Int(MX_PAIRS)
 
@@ -314,11 +319,12 @@ enum Strip: Hashable {
     case output(Int)
 
     /// The next input or output, wrapping around, for Tab between names.
-    func neighbor(backward: Bool, in session: Session) -> Strip {
+    /// `inputs` is how many are showing.
+    func neighbor(backward: Bool, in session: Session, inputs: Int) -> Strip {
         switch self {
         case .input(var c):
             // Past the names that can't be changed.
-            repeat { c = (c + (backward ? channelCount - 1 : 1)) % channelCount }
+            repeat { c = (c + (backward ? inputs - 1 : 1)) % inputs }
             while session.nameLocked(.input(c))
             return .input(c)
         case .output(let m):
@@ -362,14 +368,26 @@ struct Session: Codable, Equatable {
     /// "Input 1" while Jammer plays into them.
     static let jammerNames = ["Jammer L", "Jammer R"]
 
-    func nameLocked(_ s: Strip) -> Bool {
-        if case .input(let c) = s { return jammerLink == true && c < Self.jammerNames.count }
-        return false
+    /// Channel 9 is always the keyboard, so always "Keys".
+    static let keysName = "Keys"
+
+    /// Why a name can't be changed, or nil if it can.
+    func nameLock(_ s: Strip) -> String? {
+        guard case .input(let c) = s else { return nil }
+        if c == keyboardChannel { return "Always the keyboard's USB audio" }
+        if jammerLink == true && c < Self.jammerNames.count {
+            return "Named for Jammer while inputs 1–2 are from Jammer"
+        }
+        return nil
     }
 
-    /// The Jammer names onto inputs 1 and 2 while linked; once unlinked,
-    /// back to the defaults if they still have them.
-    mutating func nameJammerInputs() {
+    func nameLocked(_ s: Strip) -> Bool { nameLock(s) != nil }
+
+    /// The names that can't be changed, put back: "Keys" on channel 9, and
+    /// the Jammer names on inputs 1 and 2 while linked -- once unlinked, back
+    /// to the defaults if they still have them.
+    mutating func fixLockedNames() {
+        channels[keyboardChannel].name = Self.keysName
         for (c, name) in Self.jammerNames.enumerated() {
             if jammerLink == true { channels[c].name = name }
             else if channels[c].name == name { channels[c].name = "Input \(c + 1)" }
@@ -383,6 +401,21 @@ struct Session: Codable, Equatable {
     /// Only read, by `migrateLinks`.
     var splitMain: Bool?
 
+    static func defaultName(ofChannel c: Int) -> String {
+        c == keyboardChannel ? keysName : "Input \(c + 1)"
+    }
+
+    /// Saves and scenes from before channel 9 have eight channels: add the
+    /// keyboard, pulled down everywhere.
+    static func addKeyboard(channels: inout [ChannelSettings], mixes: inout [Mix]) {
+        guard channels.count == jackCount else { return }
+        channels.append(ChannelSettings(name: defaultName(ofChannel: keyboardChannel)))
+        for m in mixes.indices where mixes[m].sends.count == jackCount {
+            mixes[m].sends.append(0)
+            mixes[m].pans.append(0)
+        }
+    }
+
     /// Outs 1+2 are Main and 7+8 a stereo in-ear mix; 3–6 are mono auxes.
     static let initialLinks = [true, false, false, true]
 
@@ -390,7 +423,7 @@ struct Session: Codable, Equatable {
         // Everything starts pulled down so a fresh install never surprises
         // anyone with sound (or feedback) through the PA.
         Session(
-            channels: (1...channelCount).map { ChannelSettings(name: "Input \($0)") },
+            channels: (0..<channelCount).map { ChannelSettings(name: Session.defaultName(ofChannel: $0)) },
             mixes: (0..<mixCount).map { m in
                 Mix(name: defaultName(ofMix: m, linked: m % 2 == 0 && initialLinks[m / 2]),
                     sends: Array(repeating: 0, count: channelCount),
@@ -480,9 +513,10 @@ struct Session: Codable, Equatable {
     }
 
     /// "In 3", "Out 1+2"; empty for an aux whose name already says it.
+    /// Channel 9 isn't a jack: it comes over the keyboard's USB.
     func jacks(of s: Strip) -> String {
         switch s {
-        case .input(let c): "In \(c + 1)"
+        case .input(let c): c == keyboardChannel ? "USB" : "In \(c + 1)"
         case .output(let m): jacks(ofMix: m)
         }
     }

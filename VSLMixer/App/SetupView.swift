@@ -45,10 +45,10 @@ struct SetupView: View {
                     Text(jammerNote).font(.caption).foregroundStyle(.secondary)
                 }
                 Section("Input names") {
-                    ForEach(0..<channelCount, id: \.self) { c in
-                        TextField("In \(c + 1)", text: $app.session.channels[c].name)
+                    ForEach(0..<app.shownChannelCount, id: \.self) { c in
+                        TextField(c == keyboardChannel ? Session.keysName : "In \(c + 1)", text: $app.session.channels[c].name)
                             .disabled(app.session.nameLocked(.input(c)))
-                            .help(app.session.nameLocked(.input(c)) ? "Named for Jammer while inputs 1–2 are from Jammer" : "")
+                            .help(app.session.nameLock(.input(c)) ?? "")
                     }
                 }
                 Section("Output names") {
@@ -83,7 +83,7 @@ struct SetupView: View {
         Binding(get: { app.session.jammerLink == true }, set: { on in
             var s = app.session
             s.jammerLink = on
-            s.nameJammerInputs()
+            s.fixLockedNames()
             app.session = s
         })
     }
