@@ -95,22 +95,28 @@ final class MidiRecorder: @unchecked Sendable {
 
     /// Connects every source, including ones plugged in (or back in) mid-set.
     /// A device keeps its track if it comes back.
+    ///
+    /// The connecting is done outside the lock: MIDIPortConnectSource waits
+    /// on CoreMIDI's input thread, which may be in receive() waiting for the
+    /// lock -- MIDI arriving just as Record was clicked froze the app.
     private func connectSources() {
+        var toConnect: [(src: MIDIEndpointRef, track: Int, known: Bool)] = []
         lock.lock()
-        defer { lock.unlock() }
         for i in 0..<MIDIGetNumberOfSources() {
             let src = MIDIGetSource(i)
             guard src != 0, src != ownSource else { continue }
-            let track: Int
             if let known = sources.firstIndex(of: src) {
-                track = known
-                MIDIPortDisconnectSource(port, src)
+                toConnect.append((src, known, true))
             } else {
-                track = sources.count
+                toConnect.append((src, sources.count, false))
                 sources.append(src)
                 names.append(Self.name(of: src))
             }
-            MIDIPortConnectSource(port, src, UnsafeMutableRawPointer(bitPattern: track + 1))
+        }
+        lock.unlock()
+        for c in toConnect {
+            if c.known { MIDIPortDisconnectSource(port, c.src) }
+            MIDIPortConnectSource(port, c.src, UnsafeMutableRawPointer(bitPattern: c.track + 1))
         }
     }
 
