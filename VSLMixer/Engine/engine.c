@@ -221,6 +221,7 @@ struct mx_engine {
     // ---- Jammer on inputs 1 and 2 (jammer_link.h)
     jammer_link *link;        // mapped once by the UI thread, never unmapped
     _Atomic bool link_on;
+    _Atomic int32_t link_lag;  // IO thread: frames between Jammer's writes and our reads
     _Atomic bool link_alive;  // IO thread: Jammer has written recently
     uint64_t link_timeout;    // mach ticks without a write before it's gone
     uint64_t link_rd;         // IO thread only
@@ -668,13 +669,19 @@ static void link_read(mx_engine *e, float *dst, int frames) {
     atomic_store_explicit(&e->link_alive, alive, memory_order_relaxed);
     if (alive) {
         int64_t lag = (int64_t)(w - e->link_rd);
-        if (!e->link_synced || lag < frames || lag > (int64_t)JL_FRAMES / 2) {
-            uint32_t block = atomic_load_explicit(&l->block, memory_order_relaxed);
-            if (block > JL_FRAMES / 4) block = JL_FRAMES / 4;
-            uint64_t target = block + 2 * (uint64_t)frames;
+        uint32_t block = atomic_load_explicit(&l->block, memory_order_relaxed);
+        if (block > JL_FRAMES / 4) block = JL_FRAMES / 4;
+        uint64_t target = block + 2 * (uint64_t)frames;
+        // Too far behind counts as much as too close: Jammer's block can
+        // shrink under us -- 512 frames on the laptop's own output while the
+        // box was unplugged, 64 once it's back -- and a lag lined up for the
+        // big one would otherwise stay, a dozen milliseconds late, for good.
+        if (!e->link_synced || lag < frames || lag > (int64_t)(target + 2 * block + 2 * frames)) {
             e->link_synced = w >= target;
             e->link_rd = w - target;
+            lag = (int64_t)target;
         }
+        atomic_store_explicit(&e->link_lag, (int32_t)lag, memory_order_relaxed);
     } else {
         e->link_synced = false;
     }
@@ -1209,6 +1216,7 @@ void mx_engine_get_stats(mx_engine *e, mx_stats *st) {
     st->buffer_frames = e->buffer_frames;
     st->latency_frames = e->latency_frames;
     st->callbacks = atomic_load(&e->callbacks);
+    st->jammer_lag_frames = atomic_load(&e->link_lag);
     st->dropouts = atomic_load(&e->dropouts);
     st->recording = atomic_load(&e->recording);
     st->recorded_frames = atomic_load(&e->recorded_frames);

@@ -2,6 +2,9 @@ import AppKit
 import AVFoundation
 import IOKit.pwr_mgt
 import Observation
+import os
+
+private let engineLog = Logger(subsystem: "com.jefftk.vslmixer", category: "engine")
 
 enum Route: Equatable {
     case mixer
@@ -107,6 +110,7 @@ final class AppState {
     @ObservationIgnored private let engine: OpaquePointer = mx_engine_create()
     @ObservationIgnored private var meterTimer: Timer?
     @ObservationIgnored private var watchdogTimer: Timer?
+    @ObservationIgnored private var lastJammerLag: Int32 = 0
     @ObservationIgnored private var saveTask: Task<Void, Never>?
     @ObservationIgnored private var permissionGranted = false
     @ObservationIgnored private var lastCallbacks: UInt64 = 0
@@ -183,6 +187,11 @@ final class AppState {
         case 0:
             status.state = .running
             refreshStats()
+            engineLog.info("""
+                audio started: asked for \(self.session.bufferFrames, privacy: .public) frames, \
+                got \(self.status.bufferFrames, privacy: .public), \
+                \(self.status.latencyMs, format: .fixed(precision: 1), privacy: .public) ms in to out
+                """)
         case Int32(MX_ERR_NO_DEVICE):
             status.state = .problem("Interface not connected")
         case Int32(MX_ERR_TOO_FEW_CHANNELS):
@@ -229,6 +238,10 @@ final class AppState {
             return
         }
 
+        if abs(st.jammer_lag_frames - lastJammerLag) > 64 {
+            engineLog.info("reading Jammer \(st.jammer_lag_frames, privacy: .public) frames behind")
+            lastJammerLag = st.jammer_lag_frames
+        }
         stalledTicks = st.callbacks == lastCallbacks ? stalledTicks + 1 : 0
         if stalledTicks == 0 { failedRestarts = 0 }
         lastCallbacks = st.callbacks

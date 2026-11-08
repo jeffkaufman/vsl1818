@@ -315,7 +315,11 @@ run through Jammer again later:
 - The IO proc reads the ring by Jammer's block size plus two of its own
   buffers behind the write position.  The two apps share a clock, so it
   doesn't drift; it resyncs (a click) only if the threads' timing drifts out
-  of range.  With no write for 100 ms, Jammer counts as gone: inputs 1–2 go
+  of range -- including falling well behind, which is what happens when
+  Jammer's block shrinks: on the laptop's own output while the box is
+  unplugged it writes 512 frames at a time, and back on the box 64.  The
+  mandolin goes through Jammer, so a lag left over from the big blocks is
+  heard as the mandolin running late.  With no write for 100 ms, Jammer counts as gone: inputs 1–2 go
   silent and the status pill says "Waiting for Jammer".
 - The sandbox only allows POSIX shared memory named under an application
   group, so `project.yml` has `C58DMTY76R.jefftk.audio` and the segment is

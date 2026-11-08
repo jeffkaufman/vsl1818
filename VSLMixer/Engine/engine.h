@@ -46,6 +46,7 @@ typedef struct {
     uint32_t buffer_frames;
     uint32_t latency_frames; // estimated analog round-trip through the mixer
     uint64_t callbacks;      // increments every IO cycle; stalls show up here
+    int32_t jammer_lag_frames;  // how far behind Jammer's writes the link is read
     uint32_t dropouts;       // overloads + timeline discontinuities
     bool recording;
     uint64_t recorded_frames;
