@@ -1,11 +1,16 @@
 # VSL Mixer
 
 A low-latency Mac mixer for the PreSonus AudioBox 1818VSL, replacing the
-discontinued PreSonus VSL software.  Eight inputs, each with high-pass, 3-band
-EQ and a compressor, mixed to Main (outs 1+2) and six mono auxes (outs 3–8),
-plus raw multitrack recording.  Any pair of outs (1+2, 3+4, 5+6, 7+8) can be
-one stereo mix with a pan per input, for in-ear monitors, or two mono ones.
-Every output ends in a limiter.
+discontinued PreSonus VSL software.  Eight inputs, plus a ninth (Keys) while a
+USB keyboard's audio is plugged in, each with high-pass, 3-band EQ and a
+compressor, mixed to Main (outs 1+2) and six mono auxes (outs 3–8), plus raw
+multitrack recording.  Any pair of outs (1+2, 3+4, 5+6, 7+8) can be one stereo
+mix with a pan per input, for in-ear monitors, or two mono ones.  Every output
+ends in a limiter.
+
+This is the 2026 iteration of this repository.  The 2012 web remote for
+PreSonus's VSL app (`vsl1818.py`, at the top level) was its obsolete starting
+point; see the top-level README.
 
 ## Background: there is no DSP in the box
 
@@ -123,8 +128,9 @@ touches the Swift runtime.
 - The UI hands over channel settings through a per-channel seqlock; gains,
   mutes and masters are atomics, smoothed over ~5 ms on the IO thread.
 - Recording copies raw inputs into a lock-free ring buffer (~5 s); a writer
-  thread drains it to eight mono 24-bit WAVs via ExtAudioFile (ten with
-  Jammer linked; see below).
+  thread drains it to eight mono 24-bit WAVs via ExtAudioFile, plus one
+  for Keys while it's plugged in and two more with Jammer linked (see
+  below).
 - The IO thread keeps the last 4096 samples of every input and every mix
   sum (before processing) for the EQ editor's spectrum; `Spectrum.swift`
   FFTs it with Accelerate at 30 Hz, only while an EQ editor is open.  The
@@ -240,6 +246,23 @@ install.
 - Bluetooth was considered: Web Bluetooth would work on Android only, for
   roughly one phone at a time, so Wi-Fi it is.
 
+### Keys on channel 9
+
+While the Yamaha's "Digital Piano" USB audio is plugged in, the app opens it
+as an input-only device (`mx_engine_poll_keyboard`) and shows a ninth strip,
+always named Keys (`Session.keysName`), with the same EQ, compressor, sends
+and pan as the rest.  Its first two channels are mixed to mono.
+
+- It runs on its own clock, at 44.1 kHz, so its thread converts it to the
+  mixer's rate, and the IO proc reads it slightly faster or slower to follow
+  that clock (`kb_read`) instead of running dry every so often.
+  `keyboard_ppm` and `keyboard_underruns` in the engine's status show how
+  that's going.
+- Unplugged, the strip goes away and its settings are kept.
+- Recordings get a Keys track, "09 Keys.wav", while it's there.
+- Sessions and scenes from before it get a ninth channel, pulled down
+  everywhere.
+
 ### Jammer on inputs 1 and 2
 
 Jammer (`~/code/jammer`) is the owner's live rig: a synth played from MIDI
@@ -256,8 +279,8 @@ names.
 Recording while it's on also keeps what Jammer was fed, so a take could be
 run through Jammer again later:
 
-- The jacks themselves, as "09 In 1 (jack).wav" and "10 In 2 (jack).wav",
-  alongside "01 Jammer L" and "02 Jammer R".  The IO proc copies them
+- The jacks themselves, as "09 In 1 (jack).wav" and "10 In 2 (jack).wav"
+  (10 and 11 when Keys is 09), alongside "01 Jammer L" and "02 Jammer R".  The IO proc copies them
   aside before the ring replaces them (`mx_engine_record_start`'s `jacks`).
 - "Jammer MIDI.mid", what was played on every MIDI device
   (`MidiRecorder.swift`): CoreMIDI lets any number of apps read a device, so
